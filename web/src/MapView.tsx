@@ -131,12 +131,17 @@ async function syncLayers(
         const res = await fetch(`${base.replace(/\/$/, '')}/${def.file}`)
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         const data = await res.json()
-        if (!m.getSource(def.id)) {
-          m.addSource(def.id, { type: 'geojson', data })
+        // ★ source は **file 単位**。同じ GeoJSON を複数レイヤーで
+        //   filter 違いで使い分ける（送電線を 3 レイヤーに分けている）。
+        //   layer ごとに source を作ると同じデータを何度も持つことになる。
+        const srcId = def.file
+        if (!m.getSource(srcId)) m.addSource(srcId, { type: 'geojson', data })
+        if (!m.getLayer(def.id)) {
           m.addLayer({
             id: def.id,
             type: def.kind,
-            source: def.id,
+            source: srcId,
+            ...(def.filter ? { filter: def.filter as never } : {}),
             ...(def.minzoom ? { minzoom: def.minzoom } : {}),
             ...(def.layout ? { layout: def.layout as never } : {}),
             paint: def.paint as never,
@@ -191,7 +196,10 @@ async function syncLayers(
         m.addLayer({
           id: t.id,
           type: 'line',
-          source: 'flow_lines',
+          // ⚠️ source は**ファイル名**で作られる（同じ GeoJSON を複数レイヤーで
+          //    共有するため）。レイヤー id ではないので間違えると
+          //    addLayer が例外を投げ、潮流ごと消える（実際に消えた）。
+          source: 'flow_lines.geojson',
           filter: t.max === null
             ? ['>=', ['coalesce', ['get', 'kv'], 0], t.min]
             : ['all',

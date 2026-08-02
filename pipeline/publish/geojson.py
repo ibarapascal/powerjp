@@ -70,13 +70,52 @@ def ajg_root():
     return [p for p in base.iterdir() if p.is_dir()][0]
 
 
+# 2 点しかない線をどこまで許すか（km）。これを超えるものは直線近似とみなす
+STRAIGHT_MAX_KM = 2.0
+
+
+def _line_km(coords) -> float:
+    """[lon, lat] の並びの長さ（km）。"""
+    import math
+
+    def hav(a, b):
+        la1, lo1, la2, lo2 = map(math.radians, (a[1], a[0], b[1], b[0]))
+        h = (math.sin((la2 - la1) / 2) ** 2
+             + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2)
+        return 2 * 6371 * math.asin(math.sqrt(h))
+
+    return sum(hav(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
+
+
 def build_grid() -> tuple[int, int, int, int]:
-    """AJG 的送电线与变电所 —— 地图的静态骨架。"""
+    """送電線と変電所。地図の静的な骨格。
+
+    ## ★ 線は**原データ**から出す。拓撲図からではない
+
+    AJG は 2 つのものを配っている：
+
+        data/{region}_lines.geojson   OSM の原抽出        40,931 本
+        docs/data/built/all.json      AJG が組んだ拓撲図   14,048 本（幾何あり）
+
+    以前は拓撲図から地図用の線を作っていた。だが拓撲図は**連結性のために
+    作られたもの**で、繋がらない線は捨てられている（架空線の 18%、
+    地下ケーブルの 56%）。地図に描くだけなら繋がっている必要は無い。
+
+    「描けるか」と「拓撲が計算できるか」は別問題。
+    描画は原データ（欠けが少ない）、経路探索は拓撲図（連結性がある）を使う。
+
+    ⚠️ どちらなのかは `in_topology` で示す。拓撲図に無い線は
+    潮流の経路探索には使えない —— 地図に見えていても計算には入らない。
+    """
     src = ajg_root()
     d = json.loads((src / "docs" / "data" / "built" / "all.json")
                    .read_text(encoding="utf-8"))
 
-    lines = []
+    # 拓撲図に含まれる線分（無向）。原データの各線がここに居るか判定する
+    def key(c):
+        return (round(float(c[0]), 5), round(float(c[1]), 5))
+
+    topo: set = set()
     for e in d["edges"]:
         path = e.get("path")
         if isinstance(path, str):
@@ -84,15 +123,61 @@ def build_grid() -> tuple[int, int, int, int]:
                 path = json.loads(path)
             except ValueError:
                 path = None
-        if not (isinstance(path, list) and len(path) >= 2):
+        if not isinstance(path, list):
             continue
-        lines.append({
-            "type": "Feature",
-            "geometry": {"type": "LineString",
-                         # GeoJSON 是 [lon, lat]，built/all.json 存的是 [lat, lon]
-                         "coordinates": [[round(c[1], 6), round(c[0], 6)] for c in path]},
-            "properties": {"kv": e.get("kv") or 0, "name": e.get("name") or ""},
-        })
+        for i in range(len(path) - 1):
+            a, b = key(path[i]), key(path[i + 1])
+            topo.add((a, b) if a <= b else (b, a))
+
+    lines = []
+    n_straight = 0
+    for f in sorted((src / "data").glob("*_lines*.geojson")):
+        region = f.stem.split("_")[0]
+        for ft in json.loads(f.read_text(encoding="utf-8")).get("features", []):
+            pr = ft.get("properties", {}) or {}
+            gm = ft.get("geometry") or {}
+            if gm.get("type") == "LineString":
+                parts = [gm.get("coordinates")]
+            elif gm.get("type") == "MultiLineString":
+                parts = gm.get("coordinates") or []
+            else:
+                continue
+            for coords in parts:
+                if not isinstance(coords, list) or len(coords) < 2:
+                    continue
+                # ⛔ 2 点しかないのに長い線は、実際の走線ではなく
+                #    「両端を直線で結んだだけ」の可能性が高い。地図に出さない。
+                #    ⚠️ 2 点でも短ければ鉄塔 1 径間の実データなので残す
+                #    （実測：2 点の線 16,675 本のうち 2km 超はわずか 7 本）。
+                if len(coords) == 2 and _line_km(coords) > STRAIGHT_MAX_KM:
+                    n_straight += 1
+                    continue
+                # 拓撲図に居る線分の割合。過半なら「拓撲に入っている」とみなす
+                tot = hit = 0
+                for i in range(len(coords) - 1):
+                    a = key([coords[i][1], coords[i][0]])
+                    b = key([coords[i + 1][1], coords[i + 1][0]])
+                    tot += 1
+                    hit += ((a, b) if a <= b else (b, a)) in topo
+                lines.append({
+                    "type": "Feature",
+                    "geometry": {"type": "LineString",
+                                 "coordinates": [[round(c[0], 6), round(c[1], 6)]
+                                                 for c in coords]},
+                    "properties": {
+                        "kv": _kv_tag(pr.get("voltage")),
+                        "name": pr.get("name:ja") or pr.get("name") or "",
+                        # line = 架空、cable = 地下・水底
+                        "power": pr.get("power") or "line",
+                        "underground": (pr.get("power") == "cable"
+                                        or pr.get("location") == "underground"),
+                        # ⚠️ False の線は地図に見えても潮流計算には入らない
+                        "in_topology": tot > 0 and hit / tot >= 0.5,
+                        "region": region,
+                    },
+                })
+    if n_straight:
+        log.info("2 点だけの長い線を除外: %d 本（実走線ではなく直線近似）", n_straight)
     n_lines = write("grid_lines.geojson", lines)
 
     subs = []
@@ -111,34 +196,17 @@ def build_grid() -> tuple[int, int, int, int]:
     return len(lines), n_lines, len(subs), n_subs
 
 
-# ★ 電圧階級ごとの想定運用容量（MW）。
-#
-# ⚠️ **公式値ではない**。地内基幹送電線の熱容量・運用容量は公開されていない
-#    （`occto_flow` の CSV に容量列は無く、`occto_capacity` は地域間連系線のもの）。
-#    ここでは日本の一般的な回線構成を前提にした概算値を、実測潮流の最大値で
-#    校正している（最大時の負荷率が 85〜105% に収まるように置いた）。
-#
-#    実測（当日平均|潮流|の最大）: 500kV 4,452 / 275kV 2,581 / 220kV 654 /
-#                                187kV 277 / 132kV 255 MW
-#
-# ⚠️ 負荷率は**線路の公称電圧**で引くこと。区間の電圧ではない ——
-#    潮流値は線路全体の値であり、経路が一時的に低電圧の辺を通っていても
-#    その区間に線路全体の潮流が流れているわけではないため。
-LINE_CAPACITY_MW = {
-    500: 5000, 275: 2800, 220: 800, 187: 320,
-    154: 800, 132: 300, 77: 200, 66: 200,
-}
-
-
-def _capacity(kv: float) -> float:
-    """公称電圧 → 想定運用容量（MW）。未知の電圧は近い階級に丸める。"""
-    if kv <= 0:
+def _kv_tag(v) -> float:
+    """OSM の voltage タグ（V 単位・`66000;154000` のような複数値）→ kV。"""
+    if not v:
         return 0.0
-    known = sorted(LINE_CAPACITY_MW)
-    for k in known:
-        if kv <= k:
-            return float(LINE_CAPACITY_MW[k])
-    return float(LINE_CAPACITY_MW[known[-1]])
+    best = 0.0
+    for part in str(v).replace(",", ";").split(";"):
+        try:
+            best = max(best, float(part.strip()))
+        except ValueError:
+            pass
+    return round(best / 1000, 1) if best else 0.0
 
 
 def _kv(v) -> float:

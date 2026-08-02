@@ -37,6 +37,11 @@ export type LayerDef = {
   paint: Record<string, unknown>
   /** symbol レイヤー用。icon-image / icon-size など */
   layout?: Record<string, unknown>
+  /**
+   * mapbox の filter 式。**同じ `file` を複数レイヤーで分け合う**ときに使う。
+   * source は `file` 単位で 1 つだけ作られる（MapView 参照）。
+   */
+  filter?: unknown[]
   defaultOn: boolean
   /** 侧边栏里的一句话说明 —— 尤其要写清是实测还是推算 */
   note?: string
@@ -251,14 +256,17 @@ export const LAYERS: LayerDef[] = [
     id: 'grid_lines',
     order: 2,
     group: '送電網',
-    label: '送電線（全量）',
+    label: '送電線（系統に接続）',
     file: 'grid_lines.geojson',
     kind: 'line',
     defaultOn: true,
-    note: 'AJG (OpenStreetMap 由来) 14,048 本・85,335 km。⛔ 幾何は一切簡略化していない',
+    // ★ 拓撲図に含まれる線。潮流の経路探索に使えるのはこれだけ
+    filter: ['all',
+      ['==', ['get', 'in_topology'], true],
+      ['!=', ['get', 'underground'], true]],
+    note: 'AJG (OpenStreetMap 由来)。拓撲図に含まれ、潮流の経路探索に使える線。⛔ 幾何は一切簡略化していない',
     paint: {
       'line-color': KV_COLOR,
-      // ⚠️ 細すぎると暗い底図の上でほぼ見えない。実測で 0.3px は不可視だった
       'line-width': KV_LINE_WIDTH,
       'line-opacity': 0.92,
     },
@@ -266,11 +274,70 @@ export const LAYERS: LayerDef[] = [
     popupFields: [
       { key: 'name', label: '線路名' },
       { key: 'kv', label: '電圧 (kV)' },
+      { key: 'power', label: '種別' },
+      { key: 'in_topology', label: '拓撲図に含まれる' },
+    ],
+  },
+  {
+    id: 'grid_lines_extra',
+    order: 1,
+    group: '送電網',
+    label: '送電線（接続情報なし）',
+    file: 'grid_lines.geojson',
+    kind: 'line',
+    defaultOn: true,
+    // ⚠️ 原データにはあるが AJG の拓撲図に入らなかった線（26,901 本／全体の 66%）。
+    //    地図には描けるが**潮流の経路探索には使えない**。
+    //    「描けるか」と「拓撲が計算できるか」は別問題なので、
+    //    隠さずに一段暗くして区別する（REQUIREMENTS P2「不要缺东西」）。
+    filter: ['all',
+      ['!=', ['get', 'in_topology'], true],
+      ['!=', ['get', 'underground'], true]],
+    note: '原データにはあるが拓撲図に入らなかった線。地図には出るが潮流計算には使われない',
+    paint: {
+      'line-color': KV_COLOR,
+      'line-width': KV_LINE_WIDTH,
+      // 一段だけ暗く。消さずに主従を付ける
+      'line-opacity': 0.45,
+    },
+    legend: [{ color: '#4f93cc', label: '接続情報が無い線（計算には未使用）' }],
+    popupFields: [
+      { key: 'name', label: '線路名' },
+      { key: 'kv', label: '電圧 (kV)' },
+      { key: 'power', label: '種別' },
+      { key: 'in_topology', label: '拓撲図に含まれる' },
+    ],
+  },
+  {
+    id: 'grid_underground',
+    order: 3,
+    group: '送電網',
+    label: '地下ケーブル',
+    file: 'grid_lines.geojson',
+    kind: 'line',
+    defaultOn: true,
+    filter: ['==', ['get', 'underground'], true],
+    note: '地下・水底のケーブル 1,271 本。⚠️ 都市部の地下線は OSM 自体にほとんど無く、これは実在するもののごく一部',
+    paint: {
+      'line-color': KV_COLOR,
+      'line-width': KV_LINE_WIDTH,
+      // 拓撲に入っているものだけ濃く（opacity は属性で変えられる）
+      'line-opacity': ['case', ['==', ['get', 'in_topology'], true], 0.92, 0.45],
+      // ⚠️ 破線は**静的**。潮流の流光と違ってアニメーションしないので、
+      //    data-driven な線幅と併用してもテクスチャの作り直しは起きない。
+      'line-dasharray': [2, 1.5],
+    },
+    legend: [{ color: '#6ba3d6', label: '地下・水底ケーブル（破線）', dashed: true }],
+    popupFields: [
+      { key: 'name', label: '線路名' },
+      { key: 'kv', label: '電圧 (kV)' },
+      { key: 'power', label: '種別' },
+      { key: 'in_topology', label: '拓撲図に含まれる' },
     ],
   },
   {
     id: 'substations',
-    order: 4,
+    order: 5,
     group: '送電網',
     label: '変電所',
     file: 'substations.geojson',
@@ -307,7 +374,7 @@ export const LAYERS: LayerDef[] = [
     //   潮流の強弱は上を走る流光の色（黄→橙→赤）だけで表す。
     //   ⚠️ 以前は本体を橙にしていたため、黄の流光と合わさって
     //      「赤黄が交互に流れる線」になり、電圧も潮流量も読めなかった。
-    order: 3,
+    order: 4,   // ⚠️ grid_underground(3) と重ならないこと。同値だと重ね順が不定になる
     paint: {
       'line-color': KV_COLOR,
       'line-width': KV_LINE_WIDTH,
@@ -347,7 +414,7 @@ export const LAYERS: LayerDef[] = [
   // ── 発電 ────────────────────────────────────────────────
   {
     id: 'plants',
-    order: 6,
+    order: 7,
     group: '発電',
     label: '調整力機組（実測）',
     file: 'plants.geojson',
@@ -409,7 +476,7 @@ export const LAYERS: LayerDef[] = [
   },
   {
     id: 'sites',
-    order: 5,
+    order: 6,
     group: '発電',
     label: '非調整電源（推算）',
     file: 'sites.geojson',
