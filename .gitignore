@@ -1,0 +1,55 @@
+# 凭据 —— 任何情况下都不进 git
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+.wrangler/
+
+# 本地个人指示（实体在 repo 外，见 CLAUDE.local.md 说明）
+CLAUDE.local.md
+
+# 数据本体：体积大，且部分源的再配布许可未确认
+storage/
+
+# 瓦片与发布产物（由管线生成，不进版本控制）
+dist/
+tiles/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Dagster
+dagster_home/
+.dagster/
+tmp*/
+*.db
+
+# Node / Vite
+node_modules/
+web/dist/
+.vite/
+
+# OS / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 临时
+scratch/
+*.log
+
+# ── 前端 ──
+web/node_modules/
+web/dist/
+web/.env
+# public/data は storage/publish への symlink（データ本体は storage/ 側で無視済み）
+web/public/data

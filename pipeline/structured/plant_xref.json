@@ -1,0 +1,103 @@
+{
+  "_doc": {
+    "purpose": "OCCTO 的発電所名 → 坐标源里的発電所名，人工核对过的对应关系。",
+    "why": "归一化规则解决不了的写法差异（事业者叫法不同、简称、企业名前缀）。规则再调也对不上，而且调松了会错配。",
+    "key": "occto = normalize(htdnsNm) 之后的形态；target = 坐标源里的原名（未归一）",
+    "confidence": "high = 同一设施无疑；medium = 高度可能但有一字之差或需核实；低于 medium 的不写进来",
+    "rule": "⚠️ 只写**确信是同一座电站**的。宁可留未匹配，也不要错配 —— 错配会把 A 的出力画到 B 的位置且不报错。",
+    "updated": "2026-08-01"
+  },
+  "entries": [
+    { "occto": "東京柏崎刈羽", "target": "柏崎刈羽原子力発電所", "source": "AJG",
+      "confidence": "high",
+      "note": "OCCTO 侧写成「東京柏崎刈羽」（事业者名+电站名），标准名是柏崎刈羽原子力発電所。当日 30.9 GWh = 全国 1.40%，单条最大" },
+
+    { "occto": "根岸ガス化複合", "target": "根岸製油所ガス化複合発電所", "source": "AJG",
+      "confidence": "high",
+      "note": "OCCTO 省略了「製油所」。ENEOS 根岸製油所内的 IGCC" },
+
+    { "occto": "姫路天然ガス", "target": "Himeji Natural Gas power station", "source": "GEM",
+      "confidence": "high",
+      "note": "★ 未匹配里最大的一条（当日 1.03%）。GEM 收在**英文名**下、local 名为空，所以日文池子永远看不到它。622.6MW oil/gas @34.815418,134.685551 —— 与関西電力的 姫路第一/第二発電所（34.77 附近）是不同厂址，位置也对得上" },
+
+    { "occto": "福島天然ガス", "target": "Soma Port Gas power station", "source": "GEM",
+      "confidence": "high",
+      "note": "福島ガス発電（FGP）新地町・相馬港。GEM local 写「福島ガス発電所」少了「天然」，英文名按港口命名。590MW @37.849198,140.952914，与新地町相馬港一致" },
+
+    { "occto": "大分製鐵", "target": "Nippon Steel Oita Works power station", "source": "GEM",
+      "confidence": "high",
+      "note": "日本製鉄 大分製鐵所（＝九州製鉄所 大分地区）自备电厂。GEM local「日本製鉄 九州製鐵所」330MW coal @33.269064,131.649396" },
+
+    { "occto": "大分第2", "target": "Nippon Steel Oita Works power station", "source": "GEM",
+      "confidence": "medium",
+      "note": "OCCTO「大分 第２発電所」同属日本製鉄大分製鐵所，与上一条是**同一厂址的不同机组**，GEM 只有一个点。⚠️ 若日后拆出独立机组点需重核" },
+
+    { "occto": "トクヤマ東", "target": "Tokuyama East power station", "source": "GEM",
+      "confidence": "high",
+      "note": "トクヤマ 徳山製造所 東発電所。GEM local「徳山製造所 東発電所」300MW @34.03653,131.79395。⚠️ 不是 AJG 的「東発電所」（见 _rejected 里的旧判断，已被本条推翻）" },
+
+    { "occto": "麻里布第2", "target": "麻里布火力発電所", "source": "AJG",
+      "confidence": "medium",
+      "note": "AJG 那条的 operator 是**新日本石油精製株式会社**（今 ENEOS）＝麻里布製油所自备，与 OCCTO 把它归到「その他」一致。AJG 只有一个点，第1/第2 同厂址，误差百米级。@34.204213,132.238419" },
+
+    { "occto": "名古屋第二", "target": "名古屋発電所", "source": "AJG",
+      "confidence": "medium",
+      "note": "AJG operator=中山名古屋共同発電株式会社，GEM 同坐标写「中山名古屋発電所」coal 149MW —— 与 OCCTO「中部・火力（石炭）」吻合。中山名古屋共同発電确有第一/第二発電所，AJG 只有一个点。⚠️ 不是中部電力的西/新名古屋火力。@34.842814,136.926425" },
+
+    { "occto": "室蘭中央", "target": "室蘭製鉄所中央発電所", "source": "AJG",
+      "confidence": "high",
+      "note": "OCCTO 写「日本製鉄（株）室蘭中央発電所 第5号発電設備」，AJG 写「室蘭製鉄所中央発電所」" },
+
+    { "occto": "防府", "target": "防府バイオマス・石炭混焼発電所", "source": "GEM",
+      "confidence": "high",
+      "note": "OCCTO 写「防府バイオマス発電所」，GEM 多了「・石炭混焼」。⚠️ 不要匹配到 AJG 的「防府市発電所」——那是太阳能" },
+
+    { "occto": "ひびき", "target": "ひびき天然ガス発電所", "source": "GEM",
+      "confidence": "high",
+      "note": "OCCTO 写「ひびき発電所」。⚠️ 与「ひびき灘石炭・バイオマス」是两座不同的电站，别混" },
+
+    { "occto": "ひびき灘石炭・", "target": "ひびき灘・バイオマス発電所", "source": "GEM",
+      "confidence": "medium",
+      "note": "OCCTO「ひびき灘石炭・バイオマス発電所」vs GEM「ひびき灘・バイオマス発電所」，GEM 少了「石炭」。同一厂址的可能性高" },
+
+    { "occto": "酒田共同", "target": "酒田共同火力", "source": "GEM",
+      "confidence": "high",
+      "note": "归一化不对称：OCCTO 侧「酒田共同火力発電所」被剥成「酒田共同」，GEM 侧「酒田共同火力」没有発電所后缀所以保留了「火力」" },
+
+    { "occto": "川崎天然ガス", "target": "川崎天然ガス発電", "source": "GEM",
+      "confidence": "high",
+      "note": "GEM 的名字少了个「所」。⚠️ 不要匹配到 AJG 的「川崎火力発電所」——那是 JERA 的另一座" },
+
+    { "occto": "泉北天然ガス第一", "target": "泉北天然ガス発電所", "source": "AJG",
+      "confidence": "high",
+      "note": "第一/第二是同一厂址的两期，AJG 只有一个点。两条都指向它" },
+
+    { "occto": "泉北天然ガス第二", "target": "泉北天然ガス発電所", "source": "AJG",
+      "confidence": "high", "note": "同上" },
+
+    { "occto": "柳井発電所第1号系列上位", "target": "柳井火力発電所", "source": "AJG",
+      "confidence": "high",
+      "note": "中国電力 柳井発電所。「第1号系列上位/下位」是机组划分，归一化没剥掉「上位/下位」" },
+
+    { "occto": "柳井発電所第1号系列下位", "target": "柳井火力発電所", "source": "AJG",
+      "confidence": "high", "note": "同上" },
+
+    { "occto": "川鉄千葉クリーン", "target": "川鉄千葉グリーンパワーステーション", "source": "AJG",
+      "confidence": "medium",
+      "note": "⚠️ OCCTO 写「クリーン」，AJG 写「グリーン」，一字之差。JFE 千葉地区可能同时有两座，**投产前需人工核实**" }
+  ],
+  "_rejected": {
+    "_note": "查过但**故意不对齐**的，写下来防止后人再提。⚠️ 说「池子里没有」之前先按**英文名**搜一遍 GEM —— 已经有 4 条是这么被推翻的。",
+    "室蘭中央→室蘭太陽光発電所": "❌ 那是太阳能，不是製鉄所自备火电",
+    "奥矢作": "GEM 有「奥矢作第一水力発電所」(323MW) 和「奥矢作第二水力発電所」(780MW) 两座，OCCTO 只写「奥矢作発電所」不带第一/第二 —— **歧义，指向哪座都是猜**。当日 0.04%",
+    "水島製油所B工場": "GEM 有三条水島（oil/gas 285MW / coal 156MW / MZ coal 112MW），坐标彼此仅数百米，无法判断 B 工場对应哪条。当日 0.02%",
+    "エフビット横須賀パワー横須賀": "GEM 无。TokyoGas 横須賀 是另一家。当日 0.00%",
+    "具志川火力・金武火力・石川火力・吉の浦火力": "沖縄电力的四座，Wikidata 有坐标但尚未并入池子（见 TODO）",
+    "_推翻记录": {
+      "トクヤマ東": "曾判「池子里没有」→ 错。GEM local「徳山製造所 東発電所」有，已加入 entries",
+      "大分第2 / 大分製鐵": "曾判「三个源都没有」→ 错。GEM「Nippon Steel Oita Works」有，已加入 entries",
+      "姫路天然ガス": "曾判「池子里没有」→ 错。GEM 收在英文名下，已加入 entries",
+      "麻里布第2 / 名古屋第二": "曾判「三源皆无」→ 错。只搜了 GEM 就下结论，**AJG 里一直有**。三个源都要搜完再说没有"
+    }
+  }
+}
