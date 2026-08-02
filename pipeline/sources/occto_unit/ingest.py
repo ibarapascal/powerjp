@@ -65,6 +65,11 @@ RECORD_LIMIT_HINT = 1000
 
 log = logging.getLogger("powerjp.occto_unit")
 
+# 何日連続で空だったら session を貼り直すか。
+# 実在する連続欠測（年末年始など）で無駄に貼り直さない程度に大きく、
+# 切れたまま何時間も空振りしない程度に小さく。
+RELOGIN_AFTER_EMPTY = 5
+
 
 def open_session() -> httpx.Client:
     """建 session 并通过免責同意画面。"""
@@ -155,6 +160,7 @@ def main() -> None:
     got = skipped = empty = 0
     written = 0
     total_items = 0
+    consecutive_empty = 0
     # 不能用 `with open_session()` —— open_session 内部已经发过请求，
     # httpx.Client 被打开后再进上下文管理器会抛 "Cannot open a client instance more than once"
     client = open_session()
@@ -171,7 +177,18 @@ def main() -> None:
                 continue
             if result is None:
                 empty += 1
+                # ⚠️ 「本当に無データ」と「session 切れ」はどちらも None で返る。
+                #    長時間の回填では後者が必ず起きるので、連続したら貼り直す。
+                #    これが無いと切れた後は延々と空振りし、
+                #    「無データの日が大量にある」ように見える（occto_flow で実際に起きた）。
+                consecutive_empty += 1
+                if consecutive_empty >= RELOGIN_AFTER_EMPTY:
+                    log.info("%d 日連続で空 —— session を貼り直す", consecutive_empty)
+                    client.close()
+                    client = open_session()
+                    consecutive_empty = 0
                 continue
+            consecutive_empty = 0
             body, n = result
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(body)  # 原始 JSON 原样落盘

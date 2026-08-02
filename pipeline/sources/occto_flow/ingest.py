@@ -89,6 +89,12 @@ def payload(area: int, day: date) -> dict[str, str]:
     }
 
 
+# get_tokens が「session 切れ」を伝えるための番兵。
+# `None`（データが無い日）と区別する必要がある —— 前者は貼り直して再試行、
+# 後者は再試行しても無駄。
+SESSION_LOST = ("__session_lost__", "")
+
+
 def login(client: httpx.Client) -> None:
     fetch.post(client, LOGIN_URL, data={})
     log.debug("session 建立")
@@ -111,8 +117,11 @@ def get_tokens(client: httpx.Client, area: int, day: date) -> tuple[str, str] | 
         key = header["downloadKey"]["value"]
         token = header["requestToken"]["value"]
     except (ValueError, KeyError, TypeError):
-        log.warning("[area=%d %s] token 抽取失败（响应不是预期的 JSON）", area, day)
-        return None
+        # ⚠️ ここには**2 つの原因**が混ざる：
+        #    ① session が切れて HTML のログイン画面が返った（長時間の回填で必ず起きる）
+        #    ② 本当に応答が壊れている
+        # 呼び出し側が session を貼り直して 1 度だけ再試行する。
+        return SESSION_LOST
     if not key or not token:
         # 没有数据的日期（未来日 / 未公开）会返回空 token，不是错误
         return None
@@ -120,13 +129,31 @@ def get_tokens(client: httpx.Client, area: int, day: date) -> tuple[str, str] | 
 
 
 def fetch_one(client: httpx.Client, area: int, day: date, *, force: bool) -> int | None:
-    """取一个「区域 × 日期」。返回写入字节数；跳过或无数据时返回 None。"""
+    """取一个「区域 × 日期」。返回写入字节数；跳过或无数据时返回 None。
+
+    ## ⚠️ session が切れたら貼り直して 1 度だけ再試行する
+
+    login は最初に 1 回だけ張るが、**数時間走ると必ず切れる**。
+    切れた後は毎回ログイン画面が返るので、気づかないと
+    「延々とリクエストを投げ続けて 1 件も取れない」状態になる。
+    実測（2026-08-02 の回填）：2.5 時間走ったところで切れ、
+    そこから 2 時間・3,489 回ぶんが全部無駄になった。
+    """
     dest = paths.raw("occto_flow", day.strftime("%Y-%m")) / \
         f"chinai_kikan_jisseki_{day:%Y%m%d}_{area:02d}.csv"
     if dest.is_file() and dest.stat().st_size > 0 and not force:
         return None
 
     tokens = get_tokens(client, area, day)
+    if tokens is SESSION_LOST:
+        log.info("session が切れたので貼り直す（area=%d %s）", area, day)
+        logout(client)
+        login(client)
+        tokens = get_tokens(client, area, day)
+        if tokens is SESSION_LOST:
+            # 貼り直しても駄目 = 本当に応答が壊れている
+            log.warning("[area=%d %s] 再ログイン後も token を取れない", area, day)
+            return None
     if tokens is None:
         return None
     key, token = tokens
