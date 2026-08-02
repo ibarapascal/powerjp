@@ -23,7 +23,8 @@ group_name = `structured_{domain}`（约定 2）。
     raw_ksj_p03    ┘
 
     raw_occto_flow ┐
-    raw_ajg        ┘→ structured_lines
+    raw_ajg        ┴→ structured_lines
+                    └→ structured_substation_type
 
     raw_area_jukyu   ┐
     raw_occto_unit   │
@@ -79,6 +80,23 @@ def structured_lines(context: AssetExecutionContext,
     out.parent.mkdir(parents=True, exist_ok=True)
     return run_and_report(context, cfg, "pipeline.structured.flow_route_probe",
                           "--dump", str(out))
+
+
+@asset(group_name="structured_network", compute_kind="python",
+       deps=["raw_ajg", "raw_occto_flow"])
+def structured_substation_type(context: AssetExecutionContext,
+                               cfg: PowerjpConfig) -> MaterializeResult:
+    """変電所 8,994 点の種別復元（送電用 / 配電用 / 開閉所 / 鉄道用 …）。
+
+    AJG の拓撲図の節点は `name` と `kv` しか持たない —— 種別は縫合で落ちている。
+    名前・OSM タグ・事業者名・電圧の 4 系統から復元し、`stype_source` に
+    **どれで判ったか**を残す（`voltage` は推定であって実データではない）。
+
+    ⚠️ 判定はファイルに落とさず publish が直接呼ぶ。この asset は
+    「不明率が上がっていないか」を Dagster 上で見えるようにするためにある。
+    上流の AJG が変わって unknown_ratio が跳ねたらここで気づく。
+    """
+    return run_and_report(context, cfg, "pipeline.structured.substation_type")
 
 
 @asset(group_name="structured_generation", compute_kind="python",

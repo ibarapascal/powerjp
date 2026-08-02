@@ -22,7 +22,10 @@ function serveData() {
         if (!name || name.includes('/') || name.includes('..')) return next()
         const file = resolve(PUBLISH_DIR, name)
         if (!existsSync(file) || !statSync(file).isFile()) return next()
-        res.setHeader('Content-Type', 'application/geo+json; charset=utf-8')
+        // flow_stamps.json のような素の JSON も配信する（GeoJSON だけではない）
+        res.setHeader('Content-Type', name.endsWith('.geojson')
+          ? 'application/geo+json; charset=utf-8'
+          : 'application/json; charset=utf-8')
         res.setHeader('Cache-Control', 'no-cache')
         createReadStream(file).pipe(res)
       })
@@ -32,6 +35,9 @@ function serveData() {
 
 export default defineConfig({
   plugins: [react(), serveData()],
-  server: { host: '0.0.0.0', port: 8081 },
+  // ⚠️ 既定は **localhost のみ**。`0.0.0.0` にすると同じ LAN の誰からでも
+  //    開ける —— 公共 Wi-Fi では未公開データがそのまま覗かれる。
+  //    実機確認などで LAN に出したいときだけ `pnpm dev --host` を明示する。
+  server: { host: '127.0.0.1', port: 8081 },
   build: { outDir: 'dist', assetsInlineLimit: 0 },
 })

@@ -253,3 +253,77 @@ body {
   line-height: 1.5;
   color: var(--muted);
 }
+
+/* ── 潮流の時刻スライダー ──────────────────────────────
+   ⚠️ 自動再生はしない。既定は最新コマで、手で戻すだけ（ユーザー方針）。 */
+.timebar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100% - 48px));
+  padding: 10px 14px 6px;
+  background: rgba(13, 17, 23, 0.92);
+  border: 1px solid #232b36;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+.timebar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.timebar-now {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.timebar-tag {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid #2f3a48;
+  background: #171d26;
+  color: var(--muted);
+  cursor: pointer;
+}
+.timebar-tag.live {
+  border-color: #2b6f4a;
+  background: #12261c;
+  color: #6fd39b;
+  cursor: default;
+}
+.timebar-range {
+  margin-left: auto;
+  font-size: 10px;
+}
+.timebar-track {
+  position: relative;
+  padding-bottom: 14px;
+}
+.timebar-track input[type='range'] {
+  width: 100%;
+  accent-color: #ffb02e;
+}
+.timebar-ticks {
+  position: relative;
+  height: 12px;
+}
+.timebar-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 情報パネル：いま見ているコマの実測値 */
+.slotnow {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: #131922;
+  border: 1px solid #232b36;
+  border-radius: 6px;
+}

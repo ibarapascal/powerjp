@@ -4,10 +4,11 @@
  * レイヤーの追加は `layers.ts` の LAYERS に 1 項目足すだけ。
  * このファイルは触らなくてよい。
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapView } from './MapView'
 import { Sidebar } from './Sidebar'
 import { FeaturePanel } from './FeaturePanel'
+import { TimeSlider } from './TimeSlider'
 import { LAYERS } from './layers'
 import type { PickedFeature } from './types'
 
@@ -17,6 +18,23 @@ export default function App() {
   )
   const [picked, setPicked] = useState<PickedFeature | null>(null)
   const [loading, setLoading] = useState<Set<string>>(new Set())
+  const [stamps, setStamps] = useState<string[]>([])
+  // ⚠️ 初期値は -1（未確定）。stamps を読むまでコマ番号は決められない。
+  //    0 を入れると一瞬 72 時間前が映ってから最新に飛ぶ。
+  const [slotIdx, setSlotIdx] = useState(-1)
+
+  // 時刻ラベルは GeoJSON とは別ファイル（全 feature 共通なので重複させない）
+  useEffect(() => {
+    const base = (import.meta.env.VITE_DATA_BASE as string | undefined) ?? '/data'
+    fetch(`${base.replace(/\/$/, '')}/flow_stamps.json`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { stamps?: string[] }) => {
+        const s = d.stamps ?? []
+        setStamps(s)
+        setSlotIdx(s.length - 1)      // ★ 既定は最新コマ
+      })
+      .catch((err) => console.error('[powerjp] flow_stamps.json の読込に失敗:', err))
+  }, [])
 
   const toggle = useCallback((id: string) => {
     setEnabled((prev) => {
@@ -63,8 +81,15 @@ export default function App() {
           enabled={enabled}
           onPick={setPicked}
           onLoadingChange={onLoadingChange}
+          slotIdx={slotIdx}
         />
-        {picked && <FeaturePanel picked={picked} onClose={() => setPicked(null)} />}
+        {picked && (
+          <FeaturePanel picked={picked} slotIdx={slotIdx} stamps={stamps}
+                        onClose={() => setPicked(null)} />
+        )}
+        {enabled.has('flow_lines') && slotIdx >= 0 && (
+          <TimeSlider stamps={stamps} index={slotIdx} onChange={setSlotIdx} />
+        )}
       </main>
     </div>
   )

@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from dagster import Definitions, load_assets_from_modules
 
-from .assets import raw, structured
+from .assets import publish, raw, structured
 from .resources import PowerjpConfig
+from .schedules import JOBS, SCHEDULES
 
 defs = Definitions(
-    assets=load_assets_from_modules([raw, structured]),
+    assets=load_assets_from_modules([raw, structured, publish]),
+    jobs=JOBS,
+    schedules=SCHEDULES,
     resources={"cfg": PowerjpConfig()},
 )

@@ -59,6 +59,25 @@ derive       计算
 publish      tiles/{z}/{x}/{y}.pbf + Parquet 分片 + manifest.json → R2
 ```
 
+### ★ 哪一层是原本，哪一层是派生物
+
+**只有 `raw/` 需要保存。其余全部可以删掉重建。**
+
+| 层 | 性质 | 丢了会怎样 |
+|---|---|---|
+| `raw/` | **原本・SSOT** | ⛔ **不可复原**。上游只保留有限期间，过去的断面拿不回来 |
+| `structured/` | 派生 | 重跑 pipeline 即可 |
+| `publish/` | 派生（当前快照） | 同上 |
+
+因此：
+
+- `raw/` **按日期分文件、不覆盖**。30 分更新对当日文件用 `--force` 覆盖，
+  但当日 CSV 是**累积**的（含到当时为止的全部断面），所以不丢历史
+- `publish/` 是**当前 72 小时的快照**，被覆盖是正常的，不是数据丢失
+- ⚠️ **分析用的时序档案还没有** —— 现在历史只存在于 raw 的 CSV/JSON 里，
+  查询要逐文件解析。要做跨年分析得先把它们转成 Parquet（`TODO.md` S4〜S7）。
+  **这是「数据要落档供未来分析」这件事目前唯一的缺口。**
+
 ### 推进顺序（进一层，看一层）
 
 ```
@@ -282,15 +301,24 @@ uv run python -m pipeline.publish.geojson
 
 ### publish 层 + 前端（2026-08-02 起步）
 
-`pipeline/publish/geojson.py` → `storage/publish/*.geojson`：
+`pipeline/publish/geojson.py` → `storage/publish/*.geojson`。
 
-| 文件 | features | 未压缩 | gzip |
-|---|---:|---:|---:|
-| `grid_lines.geojson` | 14,048 | 7.7 MB | 2.0 MB |
-| `substations.geojson` | 8,994 | 1.3 MB | 129 KB |
-| `flow_lines.geojson` | 684 | 913 KB | 約 260 KB |
-| `sites.geojson` | 624 | 156 KB | 18 KB |
-| `plants.geojson` | 183 | 48 KB | 5 KB |
+**★ 层的定义在 `pipeline/publish/spec.py`，那是唯一出处。**
+pipeline / Dagster asset / schedule / 将来的配信脚本都从那里读，
+不要在别处重写文件清单 —— 改一处漏一处，而且症状会离原因很远。
+
+| 层 | 文件 | features | 未压缩 | 变更频率 |
+|---|---|---:|---:|---|
+| static | `grid_lines.geojson` | 40,924 | 19.6 MB | AJG 出新版时 |
+| static | `substations.geojson` | 8,994 | 2.2 MB | 同上 |
+| static | `sites.geojson` | 624 | 156 KB | 同上 |
+| dynamic | `flow_lines.geojson` | 684 | 1.5 MB | **30 分** |
+| dynamic | `plants.geojson` | 183 | 216 KB | **30 分** |
+| dynamic | `flow_stamps.json` | — | 3 KB | **30 分** |
+
+`--only dynamic` 只重建下半：**1.7 MB / 0.8 秒**（全量 22.7 MB / 3.8 秒）。
+30 分 schedule 用的就是这个 —— 送電線の走りは 30 分では変わらない。
+`manifest.json` 记录各文件属于哪层与更新时刻，供配信侧按层设缓存。
 
 ⚠️ `flow_lines` は**区間単位**（線路単位ではない）。1 本の潮流線が
 複数の電圧をまたぐため、区間ごとに実電圧を持たせて線幅を送電線と揃えている。

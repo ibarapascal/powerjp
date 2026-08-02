@@ -4,10 +4,37 @@ asset 名只用 ASCII，可读性靠 docstring（CLAUDE.md 约定 1）。
 group_name = {layer}_{domain}（约定 2）。
 """
 
-from dagster import AssetExecutionContext, MaterializeResult, asset
+from dagster import AssetExecutionContext, Config, MaterializeResult, asset
 
 from ..resources import PowerjpConfig
 from ..utils import report_manual, run_and_report
+
+
+class IngestWindow(Config):
+    """時系列 ingest の取得窓。**30 分ごとの更新と日次の穴埋めで値が違う。**
+
+    ## ⚠️ なぜ `force` が要るのか
+
+    ingest は「ファイルが在って空でなければ飛ばす」。回填を何度でも安全に
+    再開できるようにするための作りだが、**当日ぶんには都合が悪い**：
+    00:30 に取った当日ファイルは 01:00 の断面を含まないのに、
+    2 回目以降は「もう在る」と判断されて**永久に更新されない**。
+
+    だから 30 分更新は `force=True` で上書きさせる。
+    日次の穴埋めは `force=False` のまま、揃っている日を触らない。
+
+    `days=2` は日付をまたぐ瞬間の取りこぼしを防ぐため（当日＋前日）。
+    """
+
+    days: int = 7
+    force: bool = False
+
+    def args(self) -> list[str]:
+        a = ["--days", str(self.days)]
+        if self.force:
+            a.append("--force")
+        return a
+
 
 # ---------------------------------------------------------------- 网侧几何
 
@@ -35,7 +62,7 @@ def raw_occto_capacity(
 
 @asset(group_name="raw_network", compute_kind="download")
 def raw_occto_flow(
-    context: AssetExecutionContext, cfg: PowerjpConfig
+    context: AssetExecutionContext, cfg: PowerjpConfig, config: IngestWindow
 ) -> MaterializeResult:
     """OCCTO 系統情報サービス 地内基幹送電線潮流実績（逐线、30 分 × 48 断面/日）。
 
@@ -43,7 +70,7 @@ def raw_occto_flow(
     默认只取最近 7 天增量；历史回填用 CLI 的 --all 单独跑。
     """
     return run_and_report(
-        context, cfg, "pipeline.sources.occto_flow.ingest", "--days", "7"
+        context, cfg, "pipeline.sources.occto_flow.ingest", *config.args()
     )
 
 
@@ -75,7 +102,7 @@ def raw_jepx_spot(
 
 @asset(group_name="raw_generation", compute_kind="download")
 def raw_occto_unit(
-    context: AssetExecutionContext, cfg: PowerjpConfig
+    context: AssetExecutionContext, cfg: PowerjpConfig, config: IngestWindow
 ) -> MaterializeResult:
     """OCCTO ユニット別発電実績（逐机组 × 30 分 × 48 断面/日）。
 
@@ -83,7 +110,7 @@ def raw_occto_unit(
     默认只取最近 7 天增量；历史回填用 CLI 的 --all 单独跑。
     """
     return run_and_report(
-        context, cfg, "pipeline.sources.occto_unit.ingest", "--days", "7"
+        context, cfg, "pipeline.sources.occto_unit.ingest", *config.args()
     )
 
 

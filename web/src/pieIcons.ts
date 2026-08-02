@@ -46,6 +46,34 @@ export function iconId(fuel: string, step: number): string {
   return `pie-${fuel}-${step}`
 }
 
+/**
+ * コマ i の扇形アイコンを選ぶ式（`icon-image` 用）。
+ *
+ * ⚠️ 扇形が表すのは**その時刻の出力 ÷ 容量**であって当日平均ではない。
+ *    実測：原町は実時刻 94% に対し当日平均 48%、船町は 0% に対し 39%。
+ *    平均で描くと、止まっている機組が動いているように見える。
+ *
+ * ⚠️ id の組み立ては `iconId()` と同じ規則にすること。ずれると存在しない
+ *    画像を指してアイコンが**全部消える**。
+ */
+export function pieIconExpr(i: number): unknown[] {
+  // 出力（MW）。潮流と違って符号は無いが、欠測（null）はある
+  const mw = ['coalesce', ['at', i, ['get', 'slots_mw']], 0]
+  const load = ['/', mw, ['max', ['coalesce', ['get', 'capacity_mw'], 0], 1]]
+  return [
+    'concat',
+    'pie-',
+    ['match', ['coalesce', ['get', 'fuel'], ''],
+      'nuclear', 'nuclear', 'coal', 'coal', 'gas', 'gas',
+      'oil', 'oil', 'hydro', 'hydro', 'geothermal', 'geothermal',
+      'other_thermal', 'other_thermal',
+      'other'],
+    '-',
+    // 0〜1 に収めてから CF_STEPS 段に量子化。容量超過（>1）は満扇へ丸める
+    ['to-string', ['round', ['*', ['min', load, 1], CF_STEPS]]],
+  ]
+}
+
 function drawPie(color: string, cf: number): ImageData {
   const c = document.createElement('canvas')
   c.width = c.height = ICON_PX

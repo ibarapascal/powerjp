@@ -12,8 +12,10 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import { LAYERS } from './layers'
-import { registerPieIcons } from './pieIcons'
-import { GLOW_TIERS, startFlowAnimation, stopFlowAnimation } from './flowGlow'
+import { registerPieIcons, pieIconExpr } from './pieIcons'
+import {
+  GLOW_TIERS, glowFilter, utilAt, startFlowAnimation, stopFlowAnimation,
+} from './flowGlow'
 import type { PickedFeature } from './types'
 
 type Props = {
@@ -21,6 +23,8 @@ type Props = {
   enabled: Set<string>
   onPick: (f: PickedFeature | null) => void
   onLoadingChange: (id: string, busy: boolean) => void
+  /** 表示するコマ（`flow_stamps.json` の添字）。潮流の向きも色もこれで決まる */
+  slotIdx: number
 }
 
 // 初期表示は首都圏。全国からだと線が細く潮流も判別できないので、
@@ -28,10 +32,13 @@ type Props = {
 const INITIAL_CENTER: [number, number] = [139.75, 35.75]   // 東京
 const INITIAL_ZOOM = 8.2
 
-export function MapView({ token, enabled, onPick, onLoadingChange }: Props) {
+export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const ready = useRef(false)
+  /** syncLayers は非同期なので、レイヤー生成時に最新のコマを読めるよう ref で持つ */
+  const slot = useRef(slotIdx)
+  slot.current = slotIdx
   /** 既に fetch 済みの layer id。再取得を避けるため消さない */
   const loaded = useRef<Set<string>>(new Set())
   const pending = useRef<Set<string>>(new Set())
@@ -86,7 +93,7 @@ export function MapView({ token, enabled, onPick, onLoadingChange }: Props) {
         console.warn('[powerjp] 底図の色調整をスキップ:', err)
       }
       ready.current = true
-      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick)
+      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, slot.current)
     })
     map.current = m
     return () => {
@@ -104,10 +111,65 @@ export function MapView({ token, enabled, onPick, onLoadingChange }: Props) {
   useEffect(() => {
     const m = map.current
     if (!m || !ready.current) return
-    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick)
-  }, [enabled, onLoadingChange, onPick])
+    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, slotIdx)
+  }, [enabled, onLoadingChange, onPick, slotIdx])
+
+  // ── コマの移動に追従 ──
+  //
+  // ⚠️ ここで `setData` を呼んではいけない。1.5MB の GeoJSON を再パースして
+  //    タイルを作り直すので、スライダーを引くと固まる。
+  //    `setFilter` / `setPaintProperty` は幾何に触らないので軽い。
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready.current) return
+    if (slotIdx < 0) return
+    for (const t of GLOW_TIERS) {
+      if (!m.getLayer(t.id)) continue
+      try {
+        m.setFilter(t.id, glowFilter(t, slotIdx) as never)
+        m.setPaintProperty(t.id, 'line-color', utilColor(slotIdx) as never)
+      } catch (err) {
+        console.error(`[powerjp] ${t.id} のコマ更新に失敗:`, err)
+      }
+    }
+    // 機組の扇形も同じコマへ。潮流と別の時刻を映すと嘘になる
+    if (m.getLayer('plants')) {
+      try {
+        m.setLayoutProperty('plants', 'icon-image', pieIconExpr(slotIdx) as never)
+      } catch (err) {
+        console.error('[powerjp] 扇形のコマ更新に失敗:', err)
+      }
+    }
+  }, [slotIdx])
 
   return <div ref={ref} className="map" />
+}
+
+/**
+ * 流光の色＝**負荷率**（実潮流 ÷ 想定運用容量）。
+ *
+ * 絶対値（MW）だと電圧階級ごとに桁が違い、500kV だけ赤くなって
+ * 「その線が混んでいるか」が読めない。比率なら階級をまたいで比較できる。
+ * ⚠️ 容量は公開されていないため概算（publish 層 LINE_CAPACITY_MW）。
+ *
+ * ⚠️ 色標は**実際の分布**に合わせて低い側を密にする。
+ *    実測（当日平均）: p25 9% / p50 19% / p75 40% / p90 56% / p95 68%
+ *    等間隔に置くと過半数の区間が同じ黄色になり、時間帯ごとの差が読めない。
+ */
+function utilColor(i: number): unknown[] {
+  return [
+    'interpolate', ['linear'], ['coalesce', utilAt(i), 0],
+    0.00, '#fff7b0',   //   0%  ほぼ無負荷（淡黄）
+    0.10, '#ffe14d',   //  10%  p25
+    0.20, '#ffc81a',   //  20%  p50
+    0.30, '#ffa50f',   //  30%
+    0.40, '#ff8412',   //  40%  p75
+    0.55, '#ff631c',   //  55%  p90
+    0.70, '#ff4124',   //  70%  p95
+    0.85, '#ff1f1f',   //  85%
+    1.00, '#e00000',   // 100%  赤（容量到達）
+    1.20, '#8f0000',   // 120%  暗赤（容量超過）
+  ]
 }
 
 async function syncLayers(
@@ -117,6 +179,7 @@ async function syncLayers(
   pending: React.MutableRefObject<Set<string>>,
   onLoadingChange: (id: string, busy: boolean) => void,
   onPick: (f: PickedFeature | null) => void,
+  slotIdx: number,
 ) {
   for (const def of LAYERS) {
     const want = enabled.has(def.id)
@@ -146,6 +209,11 @@ async function syncLayers(
             ...(def.layout ? { layout: def.layout as never } : {}),
             paint: def.paint as never,
           } as never)
+          // 扇形は宣言側の静的な `load` ではなく**今のコマ**で描く。
+          // ここで上書きしないと、初回だけ最新コマ固定になる
+          if (def.id === 'plants' && slotIdx >= 0) {
+            m.setLayoutProperty(def.id, 'icon-image', pieIconExpr(slotIdx) as never)
+          }
           m.on('click', def.id, (e) => {
             const f = e.features?.[0]
             // GeoJSONFeature の型に properties が無いので明示的に取り出す
@@ -190,7 +258,11 @@ async function syncLayers(
   //    作り直すことになって**一部の線だけがランダムに明滅する**。
   //    帯ごとに幅を定数（zoom 補間のみ）にすれば、テクスチャは帯ごとに
   //    1 つに固定され、明滅しない。
-  if (m.getLayer('flow_lines') && !m.getLayer(GLOW_TIERS[0].id)) {
+  // ⚠️ コマが未確定（-1）のうちは作らない。`['at', -1, …]` は範囲外で
+  //    式の評価が落ち、10 レイヤーぜんぶ addLayer に失敗する。
+  //    `flow_stamps.json` は非同期に読むので、style.load の時点では
+  //    まだ届いていないことがある（このパスは実際に通る）。
+  if (slotIdx >= 0 && m.getLayer('flow_lines') && !m.getLayer(GLOW_TIERS[0].id)) {
     for (const t of GLOW_TIERS) {
       try {
         m.addLayer({
@@ -200,33 +272,11 @@ async function syncLayers(
           //    共有するため）。レイヤー id ではないので間違えると
           //    addLayer が例外を投げ、潮流ごと消える（実際に消えた）。
           source: 'flow_lines.geojson',
-          filter: t.max === null
-            ? ['>=', ['coalesce', ['get', 'kv'], 0], t.min]
-            : ['all',
-               ['>=', ['coalesce', ['get', 'kv'], 0], t.min],
-               ['<', ['coalesce', ['get', 'kv'], 0], t.max]],
+          // ★ 電圧帯 **かつ** そのコマの潮流の向きで絞る。
+          //   向きごとにレイヤーが分かれている理由は flowGlow.ts の注記参照。
+          filter: glowFilter(t, slotIdx) as never,
           paint: {
-            // ★ 流光の色＝**負荷率**（実潮流 ÷ 想定運用容量）。
-            //   絶対値（MW）だと電圧階級ごとに桁が違い、500kV だけ赤くなって
-            //   「その線が混んでいるか」が読めない。比率なら階級をまたいで比較できる。
-            //   ⚠️ 容量は公開されていないため概算（publish 層 LINE_CAPACITY_MW）。
-            'line-color': [
-              'interpolate', ['linear'], ['coalesce', ['get', 'util'], 0],
-              // ⚠️ 色標は**実際の分布**に合わせて低い側を密にする。
-              //    実測（当日平均）: p25 9% / p50 19% / p75 40% / p90 56% / p95 68%
-              //    等間隔に置くと過半数の区間が同じ黄色になり、時間帯ごとの
-              //    差が読めない。0〜40% に 5 点置いて 3/4 の区間を describe する。
-              0.00, '#fff7b0',   //   0%  ほぼ無負荷（淡黄）
-              0.10, '#ffe14d',   //  10%  p25
-              0.20, '#ffc81a',   //  20%  p50
-              0.30, '#ffa50f',   //  30%
-              0.40, '#ff8412',   //  40%  p75
-              0.55, '#ff631c',   //  55%  p90
-              0.70, '#ff4124',   //  70%  p95
-              0.85, '#ff1f1f',   //  85%
-              1.00, '#e00000',   // 100%  赤（容量到達）
-              1.20, '#8f0000',   // 120%  暗赤（容量超過）
-            ],
+            'line-color': utilColor(slotIdx) as never,
             // 幅は定数（zoom 補間のみ）。送電線の同電圧帯と同じ値
             'line-width': ['interpolate', ['linear'], ['zoom'], 4, t.w4, 11, t.w11],
             'line-opacity': 1,

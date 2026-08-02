@@ -20,7 +20,7 @@
 | 文件 | 内容 | 关键属性 |
 |---|---|---|
 | `grid_lines.geojson` | AJG 全量送电线 | `kv`、`name` |
-| `substations.geojson` | AJG 变电所 | `name`、`kv` |
+| `substations.geojson` | AJG 变电所ほか | `name`、`kv`、**`stype`**、`trunk` |
 | `flow_lines.geojson` | 潮流线（**带实测潮流的那些**） | `geometry_source`、`kv`、`km` |
 | `plants.geojson` | 调度机组（**实测**） | `fuel`、`match_method`、`coord_source` |
 | `sites.geojson` | 非调度电源（水力/風力/地熱/バイオマス） | `kind`、**`data_quality`** |
@@ -37,10 +37,14 @@
     python -m pipeline.publish.geojson
 """
 
+import argparse
 import json
 import logging
+from collections import Counter
 
 from pipeline.core import fetch, paths, report
+from pipeline.publish import spec
+from pipeline.structured import substation_type
 from pipeline.structured.plant_coords import AJG_GLOB
 
 log = logging.getLogger("powerjp.publish")
@@ -180,20 +184,67 @@ def build_grid() -> tuple[int, int, int, int]:
         log.info("2 点だけの長い線を除外: %d 本（実走線ではなく直線近似）", n_straight)
     n_lines = write("grid_lines.geojson", lines)
 
+    # 種別（送電用 / 配電用 / 開閉所 / 鉄道用 …）を付ける。
+    # ⚠️ 拓撲図の節点は name と kv しか持たない。種別は別途復元する
+    #    （`structured/substation_type.py`）。前端で色は分けないが、
+    #    「8,994 か所ぜんぶ変電所」という不正確な説明をしないために要る。
+    sub_nodes = [n for n in d["nodes"]
+                 if str(n.get("sub")) == "1" and n.get("lat") is not None]
+    stype = substation_type.classify(
+        sub_nodes,
+        substation_type.load_osm_attrs(src),
+        substation_type.load_occto_endpoints(),
+    )
+
     subs = []
-    for n in d["nodes"]:
-        if str(n.get("sub")) != "1" or n.get("lat") is None:
-            continue
+    for n in sub_nodes:
+        t = stype[n["id"]]
         subs.append({
             "type": "Feature",
             "geometry": {"type": "Point",
                          "coordinates": [round(float(n["lon"]), 6),
                                          round(float(n["lat"]), 6)]},
             "properties": {"name": n.get("name") or "", "kv": n.get("kv") or 0,
-                           "region": n.get("region") or ""},
+                           "region": n.get("region") or "",
+                           "stype": t["stype"], "stype_ja": t["stype_ja"],
+                           # 実データか推定かが判る。前端の情報パネルに出す
+                           "stype_source": t["stype_source"],
+                           "trunk": t["trunk"]},
         })
     n_subs = write("substations.geojson", subs)
+    log.info("変電所の種別: %s",
+             dict(Counter(f["properties"]["stype"] for f in subs).most_common()))
     return len(lines), n_lines, len(subs), n_subs
+
+
+# ★ 電圧階級ごとの想定運用容量（MW）。
+#
+# ⚠️ **公式値ではない**。地内基幹送電線の熱容量・運用容量は公開されていない
+#    （`occto_flow` の CSV に容量列は無く、`occto_capacity` は地域間連系線のもの）。
+#    ここでは日本の一般的な回線構成を前提にした概算値を、実測潮流の最大値で
+#    校正している（最大時の負荷率が 85〜105% に収まるように置いた）。
+#
+#    実測（当日平均|潮流|の最大）: 500kV 4,452 / 275kV 2,581 / 220kV 654 /
+#                                187kV 277 / 132kV 255 MW
+#
+# ⚠️ 負荷率は**線路の公称電圧**で引くこと。区間の電圧ではない ——
+#    潮流値は線路全体の値であり、経路が一時的に低電圧の辺を通っていても
+#    その区間に線路全体の潮流が流れているわけではないため。
+LINE_CAPACITY_MW = {
+    500: 5000, 275: 2800, 220: 800, 187: 320,
+    154: 800, 132: 300, 77: 200, 66: 200,
+}
+
+
+def _capacity(kv: float) -> float:
+    """公称電圧 → 想定運用容量（MW）。未知の電圧は近い階級に丸める。"""
+    if kv <= 0:
+        return 0.0
+    known = sorted(LINE_CAPACITY_MW)
+    for k in known:
+        if kv <= k:
+            return float(LINE_CAPACITY_MW[k])
+    return float(LINE_CAPACITY_MW[known[-1]])
 
 
 def _kv_tag(v) -> float:
@@ -217,30 +268,54 @@ def _kv(v) -> float:
         return 0.0
 
 
-def load_flow_mw() -> dict:
-    """(エリア, 送電線名) → {"abs": 平均|潮流|, "signed": 符号つき平均} (MW)。
+# 前端に渡す時系列の長さ（時間）。48 コマ/日なので 72h = 144 コマ。
+# ⚠️ 「当日」で切ってはいけない —— 日付が変わった直後は数コマしか無い。
+#    暦日ではなく**直近 N 時間**で切る。
+FLOW_WINDOW_H = 72
+SLOTS_PER_DAY = 48
+
+
+def load_flow_slots() -> tuple[dict, list[str]]:
+    """(エリア, 送電線名) → **符号つき 30 分コマの並び**、と対応する時刻ラベル。
 
     ## ⚠️ 「潮流方向(正方向)」は**基準**であって実際の向きではない
 
     OCCTO は各線路に基準の向きを決めて、その向きを正として値を出す。
     **負の値は逆向きに流れていることを意味する**。
 
-    実測（2026-07-31・九州）: 71 本中 **38 本（54%）が平均で負**。
-    例：脊振西福岡線 は「西福岡→脊振」を正方向として −486MW、
-    つまり実際は **脊振→西福岡**（福岡市街へ流入）している。
+    ## ⚠️ 平均を取ってはいけない。向きは時間で変わる
 
-    絶対値だけ取ると流光が全部「正方向＝市街から外向き」に流れてしまい、
-    負荷中心へ流れ込んでいる電力が逆に見える。
+    実測（2026-07-25〜31 の 7 日）: **464 本中 184 本（40%）が窓の中で向きを変える**。
+    少数側の割合は中央値 13%、最大 35%。当日平均の符号で幾何を反転させると、
+    その 40% は一日の何割かの時間で**逆向きに描かれる**ことになる。
+
+    したがって：
+    - 幾何は OCCTO の基準方向のまま。**反転しない**
+    - ここでは符号つきの値をコマごとに残す
+    - 流光の向きは前端が「今どのコマか」を見て決める
+
+    戻り値の `slots` は `stamps` と同じ長さ・同じ順序。値が無いコマは `None`。
     """
     import csv
     import io
     root = paths.raw("occto_flow")
     files = sorted(root.rglob("*.csv"))
     if not files:
-        return {}
-    last = max(f.name.split("_")[-2] for f in files)
+        return {}, []
+
+    # ---- 対象日：最新から遡って FLOW_WINDOW_H ぶん ----
+    days = sorted({f.name.split("_")[-2] for f in files})
+    n_days = -(-FLOW_WINDOW_H // 24)                 # 切り上げ
+    days = days[-n_days:]
+    stamps = [f"{d} {h:02d}:{m:02d}"
+              for d in days for h in range(24) for m in (0, 30)]
+    idx = {s: i for i, s in enumerate(stamps)}
+
     out: dict = {}
-    for f in [x for x in files if f"_{last}_" in x.name]:
+    for f in files:
+        day = f.name.split("_")[-2]
+        if day not in days:
+            continue
         txt = f.read_text(encoding="cp932", errors="replace").splitlines()
         hi = next((i for i, l in enumerate(txt) if "送電線名" in l), None)
         if hi is None:
@@ -250,21 +325,25 @@ def load_flow_mw() -> dict:
             ar = (r.get("対象エリア") or "").strip()
             if not nm:
                 continue
-            vals = []
+            slots = out.setdefault((ar, nm), [None] * len(stamps))
             for k, v in r.items():
-                if k and ":" in str(k):          # 00:00 … 23:30 の各コマ
-                    try:
-                        vals.append(float(str(v).replace(",", "")))
-                    except (TypeError, ValueError):
-                        pass
-            if vals:
-                signed = sum(vals) / len(vals)
-                out[(ar, nm)] = {"abs": sum(abs(v) for v in vals) / len(vals),
-                                 "signed": signed}
-    n_rev = sum(1 for v in out.values() if v["signed"] < 0)
-    log.info("潮流値 %d 本ぶん読込（対象日 %s）／基準と逆向き %d 本 (%.0f%%)",
-             len(out), last, n_rev, n_rev / max(len(out), 1) * 100)
-    return out
+                if not k or ":" not in str(k):       # 00:00 … 23:30 の各コマ
+                    continue
+                j = idx.get(f"{day} {str(k).strip()}")
+                if j is None:
+                    continue
+                try:
+                    slots[j] = round(float(str(v).replace(",", "")), 1)
+                except (TypeError, ValueError):
+                    pass
+
+    filled = sum(1 for s in out.values() for v in s if v is not None)
+    n_flip = sum(1 for s in out.values()
+                 if any(v and v > 0 for v in s) and any(v and v < 0 for v in s))
+    log.info("潮流 %d 本 × %d コマ（%s 〜 %s）／実値 %d ／窓内で向きが変わる線 %d 本 (%.0f%%)",
+             len(out), len(stamps), stamps[0], stamps[-1], filled,
+             n_flip, n_flip / max(len(out), 1) * 100)
+    return out, stamps
 
 
 # 直線代用を許す最大長（km）。これ以下なら「近接した接続の欠落」とみなす。
@@ -309,36 +388,36 @@ def _seg_quality(sg, line_kv: float, km: float) -> str:
     return "real"
 
 
-def build_flow() -> int:
+def build_flow() -> tuple[int, list[str]]:
     """★ **セグメント単位**で出す。
 
     一本の潮流線は複数の辺をつないだ経路で、途中で電圧が変わることがある
     （実測で 335 本中 12 本）。線路全体を 1 つの電圧で描くと、
     下の送電線と幅が合わず「枠が付いている」ように見える。
     段ごとに実際の kv を持たせ、前端では送電線と同じ幅式を適用する。
+
+    ## ⚠️ 幾何は反転しない（2026-08-02 に方針変更）
+
+    以前は「当日平均の符号が負なら幾何を反転」していた。当日平均で 1 本 1 向きに
+    決めていたから成り立っていた話で、**コマ単位にすると破綻する** ——
+    実測で 464 本中 184 本（40%）が窓の中で向きを変える。
+
+    幾何は OCCTO の基準方向のまま出し、**向きは前端がコマごとに決める**。
     """
     p = paths.structured("lines") / "lines.json"
     if not p.is_file():
         log.warning("%s 不存在 —— 先跑 structured_lines", p)
-        return 0
-    mw_map = load_flow_mw()
+        return 0, []
+    slot_map, stamps = load_flow_slots()
     feats = []
     stat: dict = {}
     dropped_km = 0.0
     for r in json.loads(p.read_text(encoding="utf-8")):
         segs = r.get("segments") or []
-        rec = mw_map.get((r["area"], r["line"])) or {}
-        mw = rec.get("abs")
-        signed = rec.get("signed")
-        # ★ 実際の流向が基準と逆なら**幾何そのものを反転**する。
-        #   流光は dasharray を線の向きに沿って進めるだけなので、
-        #   幾何が正しい向きを向いていないと逆走して見える。
-        reversed_ = signed is not None and signed < 0
+        slots = slot_map.get((r["area"], r["line"]))
+        # 代表値は**最後に値のあるコマ**（＝最新断面）。凡例や初期表示用
+        latest = next((v for v in reversed(slots or []) if v is not None), None)
         frm, to = r["from"], r["to"]
-        if reversed_:
-            segs = [{**sg, "coords": list(reversed(sg.get("coords") or []))}
-                    for sg in reversed(segs)]
-            frm, to = to, frm
         for i, sg in enumerate(segs):
             c = sg.get("coords") or []
             if len(c) < 2:
@@ -360,17 +439,17 @@ def build_flow() -> int:
                     # ⚠️ 段の実電圧。線路全体の公称電圧ではない
                     "kv": _kv(sg.get("kv")),
                     "line_kv": _kv(r["kv"]),
-                    # ⚠️ 反転した場合は始点・終点も入れ替えて表示する
+                    # ⚠️ OCCTO の基準方向のまま。実際の向きはコマの符号で決まる
                     "from": frm, "to": to,
-                    "flow_reversed": reversed_,
-                    "mw_signed": round(signed, 1) if signed is not None else None,
+                    # ★ 符号つき 30 分コマの並び。長さは全 feature 共通で、
+                    #   `flow_stamps.json` の時刻ラベルと一対一で対応する。
+                    #   正 = from→to、負 = to→from。値が無いコマは null。
+                    "slots_mw": slots,
+                    # 最新断面の値（初期表示・凡例用）。これも符号つき
+                    "mw_latest": latest,
                     "km": r["km"],
-                    # 当日の平均|潮流|
-                    "mw": round(mw, 1) if mw is not None else None,
-                    # ★ 負荷率 = |潮流| ÷ 想定運用容量。流光の色はこれで決まる。
+                    # ★ 負荷率の分母。負荷率そのものはコマ依存なので前端で割る。
                     #   ⚠️ 分母は**線路の公称電圧**由来（区間の電圧ではない）
-                    "util": (round(mw / _capacity(_kv(r["kv"])), 3)
-                             if mw is not None and _capacity(_kv(r["kv"])) > 0 else None),
                     "capacity_mw": _capacity(_kv(r["kv"])),
                     "seg": i,
                     "seg_km": round(km, 2),
@@ -407,7 +486,16 @@ def build_flow() -> int:
     n_shared = sum(1 for f in feats if f["properties"].get("shared_count"))
     log.info("区間の内訳 %s / 除外した長さ %.0f km / 幾何共有 %d 区間",
              stat, dropped_km, n_shared)
-    return write("flow_lines.geojson", feats)
+
+    # 時刻ラベルは全 feature で共通なので、GeoJSON に埋めず別ファイルにする。
+    # 684 feature × 144 個の文字列を重複させると数 MB 無駄になる。
+    (out_dir() / "flow_stamps.json").write_text(
+        json.dumps({"stamps": stamps, "window_h": FLOW_WINDOW_H,
+                    "slots_per_day": SLOTS_PER_DAY}, ensure_ascii=False),
+        encoding="utf-8")
+    log.info("flow_stamps.json      %d コマ（%s 〜 %s）",
+             len(stamps), stamps[0] if stamps else "-", stamps[-1] if stamps else "-")
+    return write("flow_lines.geojson", feats), stamps
 
 
 def _last_mw(slots):
@@ -420,15 +508,87 @@ def _last_mw(slots):
     return None
 
 
-def build_plants() -> int:
+def load_unit_slots(stamps: list[str]) -> dict:
+    """(事業者, 正規化名) → 30 分コマの出力（MW）。**潮流と同じ時間軸**に載せる。
+
+    ## なぜ publish 層で読み直すのか
+
+    `structured/plants/plants.json` の `slots_mw` は**当日 48 コマだけ**。
+    あれは「その日の最大出力 ≦ 設備容量か」を確かめるためのもので、
+    表示用ではない（`plant_coords.load_occto()` は 1 日しか読まない）。
+
+    時間軸を潮流と共有するには同じ `stamps` に揃える必要があるので、
+    ここで日をまたいで組み直す。⚠️ `stamps` と長さ・順序が一対一。
+
+    キーは `split_operator()` の結果 —— structured 側と同じ規則で割らないと
+    「松浦」「橘湾」のような同地名別会社が混ざる。
+    """
+    from pipeline.structured.plant_coords import split_operator
+
+    days = sorted({s.split(" ")[0] for s in stamps})
+    idx = {s: i for i, s in enumerate(stamps)}
+    files = sorted(paths.raw("occto_unit").rglob("unit_*.json"))
+    out: dict = {}
+    n_day = 0
+    for f in files:
+        day = f.stem.replace("unit_", "")
+        if day not in days:
+            continue
+        n_day += 1
+        items = json.loads(f.read_text(encoding="utf-8"))["data"]["items"]
+        for it in items:
+            op, n = split_operator(it.get("htdnsNm", ""))
+            if not n:
+                continue
+            slots = out.setdefault((op, n), [None] * len(stamps))
+            # ⚠️ キーは**連番ではなく時刻**：`htdnRslt0030` 〜 `htdnRslt2400`。
+            #    しかも指すのは区間の**終わり**（`0030` は 00:00〜00:30 の実績、
+            #    `2400` は 23:30〜24:00）。潮流 CSV の列は区間の**始まり**
+            #    （00:00 … 23:30）なので、30 分引いて始点に合わせる。
+            #    連番として読むと `0030` だけが 0〜47 に収まり、
+            #    **1 コマしか埋まらない**（実際にそうなった）。
+            for k in it:
+                if not k.startswith("htdnRslt"):
+                    continue
+                hhmm = k[len("htdnRslt"):]
+                if len(hhmm) != 4 or not hhmm.isdigit():
+                    continue
+                mins = int(hhmm[:2]) * 60 + int(hhmm[2:]) - 30     # 区間の始点へ
+                if not 0 <= mins < 24 * 60:
+                    continue
+                j = idx.get(f"{day} {mins // 60:02d}:{mins % 60:02d}")
+                if j is None:
+                    continue
+                try:
+                    v = int(str(it[k]).replace(",", "") or 0)
+                except ValueError:
+                    continue
+                # kWh/30分 → MW（1 コマ 0.5h なので ×2、kW→MW で ÷1000）
+                slots[j] = round((slots[j] or 0.0) + v * 2 / 1000.0, 2)
+    log.info("機組の出力 %d 系列 × %d コマ（%d 日ぶん）", len(out), len(stamps), n_day)
+    return out
+
+
+def build_plants(stamps: list[str] | None = None) -> int:
     p = paths.structured("plants") / "plants.json"
     if not p.is_file():
         log.warning("%s 不存在 —— 先跑 structured_plants", p)
         return 0
+    # ★ 潮流と**同じ時間軸**に載せる。スライダーを 1 本で共有するため
+    unit = load_unit_slots(stamps) if stamps else {}
+    n_hit = 0
     feats = []
     for r in json.loads(p.read_text(encoding="utf-8")):
         if r.get("lat") is None:
             continue
+        # structured 側の 48 コマではなく、時間軸に揃えた系列を使う
+        slots = unit.get((r["operator"], r["name"])) if stamps else None
+        if slots is None:
+            slots = r.get("slots_mw")
+        else:
+            n_hit += 1
+        cap = r.get("capacity_mw")
+        latest = _last_mw(slots)
         feats.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]},
@@ -446,20 +606,21 @@ def build_plants() -> int:
                                  / (r["capacity_mw"] * 24), 1.0), 4)
                        if r.get("capacity_mw") else None),
                 # ★ 扇形が表すのは**その時刻の出力 ÷ 容量**。
-                #   `load` は最新コマ（23:30）の値。時間軸を付けたら
-                #   `slots_mw` の任意のコマに差し替える（TODO R1）。
-                "mw_now": _last_mw(r.get("slots_mw")),
-                "load": (round(min(_last_mw(r.get("slots_mw")) / r["capacity_mw"], 1.0), 4)
-                         if r.get("capacity_mw") and _last_mw(r.get("slots_mw")) is not None
-                         else None),
-                # 30 分 × 48 コマ。時間軸表示用
-                "slots_mw": r.get("slots_mw"),
+                #   前端はスライダーのコマで `slots_mw` から引き直す。
+                #   ここの `mw_now` / `load` は最新コマの値（初期表示・凡例用）。
+                "mw_now": latest,
+                "load": (round(min(latest / cap, 1.0), 4)
+                         if cap and latest is not None else None),
+                # ★ 30 分コマ。潮流と同じ時間軸（`flow_stamps.json` と一対一）
+                "slots_mw": slots,
                 # GEM_operating = 現役のみ / AJG_installed_ever = 廃炉分を含む
                 "capacity_source": r.get("capacity_source"),
                 "data_quality": "measured",          # OCCTO 逐机组实测
                 "coord_source": r["coord_source"], "match_method": r["match_method"],
             },
         })
+    if stamps:
+        log.info("機組の時系列を時間軸に接続: %d / %d 機組", n_hit, len(feats))
     return write("plants.geojson", feats)
 
 
@@ -488,16 +649,52 @@ def build_sites() -> int:
     return write("sites.geojson", feats)
 
 
+def write_manifest(built: list[str]) -> None:
+    """どのファイルがどちらの層で、いつ更新されたかを残す。
+
+    配信スクリプトはこれを見て**キャッシュ制御を層ごとに変える**
+    （static は長期キャッシュ、dynamic は短期）。
+    ⚠️ 層の定義は `spec.LAYER_FILES` が唯一の出所。ここで並べ直さない。
+    """
+    d = out_dir()
+    man: dict = {"built": built}
+    for layer, names in spec.LAYER_FILES.items():
+        man[layer] = [
+            {"file": n, "bytes": (d / n).stat().st_size,
+             "mtime": int((d / n).stat().st_mtime)}
+            for n in names if (d / n).is_file()
+        ]
+    (d / "manifest.json").write_text(
+        json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main() -> None:
+    ap = argparse.ArgumentParser(description="structured → 前端用 GeoJSON")
+    # 選択肢も spec から。ここで並べ直すと定義が 2 つになる
+    ap.add_argument("--only", choices=spec.SCOPES, default="all",
+                    help="dynamic は 30 分更新用。static を作り直さないぶん速い")
+    args = ap.parse_args()
     fetch.setup_logging()
-    n_line, b_line, n_sub, b_sub = build_grid()
-    b_flow = build_flow()
-    b_plant = build_plants()
-    b_site = build_sites()
+
+    n_line = n_sub = 0
+    b_line = b_sub = b_site = b_flow = b_plant = 0
+    built: list[str] = []
+
+    if args.only in ("all", "static"):
+        n_line, b_line, n_sub, b_sub = build_grid()
+        b_site = build_sites()
+        built += spec.files_for("static")
+    if args.only in ("all", "dynamic"):
+        # ★ 潮流が決めた時間軸を機組にも渡す。スライダーは 1 本で両方を動かす
+        b_flow, stamps = build_flow()
+        b_plant = build_plants(stamps)
+        built += spec.files_for("dynamic")
+
+    write_manifest(built)
     total = b_line + b_sub + b_flow + b_plant + b_site
-    log.info("合计 %.1f MB（未压缩）", total / 1024 / 1024)
+    log.info("今回書いた %d ファイル / %.1f MB（未压缩）", len(built), total / 1024 / 1024)
     report.emit(
-        path=str(out_dir()), bytes=total,
+        path=str(out_dir()), bytes=total, only=args.only, built=built,
         size_human=report.human_bytes(total),
         grid_lines=n_line, substations=n_sub,
         simplified=False,          # ⛔ 硬约束：几何绝不简化

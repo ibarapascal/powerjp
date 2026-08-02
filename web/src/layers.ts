@@ -46,8 +46,9 @@ export type LayerDef = {
   /** 侧边栏里的一句话说明 —— 尤其要写清是实测还是推算 */
   note?: string
   legend?: LegendItem[]
-  /** 点击要素时，信息面板按这个顺序显示属性 */
-  popupFields?: { key: string; label: string }[]
+  /** 点击要素时，信息面板按这个顺序显示属性。
+   *  `map` は生の値（`voltage` のようなコード）を日本語に置き換える */
+  popupFields?: { key: string; label: string; map?: Record<string, string> }[]
   minzoom?: number
   /** 重ね順（小さいほど下）。未指定は配列順 */
   order?: number
@@ -339,11 +340,18 @@ export const LAYERS: LayerDef[] = [
     id: 'substations',
     order: 5,
     group: '送電網',
-    label: '変電所',
+    label: '変電所・開閉所ほか',
     file: 'substations.geojson',
     kind: 'circle',
     defaultOn: true,
-    note: 'AJG 8,994 か所。色は送電線と同じ電圧区分',
+    // ⚠️ 「変電所 8,994 か所」は不正確だった。この 8,994 点には配電用・鉄道用・
+    //    需要家の自家用、さらに「所」ですらない架空/地中の切替所まで混じる。
+    //    色は電圧のまま（種別で分けない）が、内訳は必ず示す。
+    note: 'AJG 8,994 か所。内訳＝配電用 4,235／送電用 2,690／鉄道用 789／'
+      + '需要家 352／架空・地中の切替所 169／開閉所 137／発電所構内 45／'
+      + '変換所 28／調相設備 15／種別不明 534。'
+      + 'うち 619 か所は OCCTO 基幹送電線の端点に名前が出る＝基幹系統。'
+      + '色は種別ではなく電圧区分',
     legend: KV_LEGEND,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.6, 12, 5.5],
@@ -355,8 +363,21 @@ export const LAYERS: LayerDef[] = [
       'circle-opacity': 0.85,
     },
     popupFields: [
-      { key: 'name', label: '変電所名' },
+      { key: 'name', label: '名称' },
+      { key: 'stype_ja', label: '種別' },
+      // 種別が実データ由来か推定かを隠さない。voltage は電圧からの推定
+      {
+        key: 'stype_source', label: '種別の根拠',
+        map: {
+          osm: 'OSM の substation タグ',
+          name: '名称（「開閉所」など）',
+          operator: '事業者名',
+          voltage: '⚠️ 電圧からの推定',
+          none: '判定できず',
+        },
+      },
       { key: 'kv', label: '電圧 (kV)' },
+      { key: 'trunk', label: 'OCCTO 基幹系統' },
       { key: 'region', label: '地域' },
     ],
   },
@@ -369,7 +390,7 @@ export const LAYERS: LayerDef[] = [
     file: 'flow_lines.geojson',
     kind: 'line',
     defaultOn: true,
-    note: 'OCCTO 公表 464 本のうち 330 本の実走線を復元（810 区間）。⛔ 経路が別電圧の線に迷い込んだ区間と長い直線代用は**描画しない**（180 区間 468km を除外）。線の色・太さは電圧、流光の色が**負荷率**（潮流÷想定容量）。⚠️ 容量は非公開のため電圧階級からの概算。⚠️ 経路はグラフ上の求解であり公式の線路図ではない',
+    note: 'OCCTO 公表 464 本のうち 330 本の実走線を復元（684 区間）。⛔ 経路が別電圧の線に迷い込んだ区間と長い直線代用は**描画しない**。線の色・太さは電圧、流光の色が**負荷率**（潮流÷想定容量）、流光の向きが**その時刻の実際の流れる向き**。直近 72 時間を 30 分刻みで遡れる（既定は最新）。⚠️ 実測 464 本中 155 本（33%）は日によって向きが変わるため、向きは時刻ごとに判定している。⚠️ 容量は非公開のため電圧階級からの概算。⚠️ 経路はグラフ上の求解であり公式の線路図ではない',
     // ★ 底色は**送電線と完全に同じ**（電圧の青・同じ幅）。
     //   潮流の強弱は上を走る流光の色（黄→橙→赤）だけで表す。
     //   ⚠️ 以前は本体を橙にしていたため、黄の流光と合わさって
@@ -397,11 +418,11 @@ export const LAYERS: LayerDef[] = [
       { key: 'area', label: 'エリア' },
       { key: 'kv', label: 'この区間の電圧 (kV)' },
       { key: 'line_kv', label: '線路の公称電圧 (kV)' },
-      { key: 'mw', label: '当日平均|潮流| (MW)' },
       { key: 'capacity_mw', label: '想定運用容量 (MW)' },
-      { key: 'util', label: '負荷率（推定）' },
-      { key: 'from', label: '始点' },
-      { key: 'to', label: '終点' },
+      // ⚠️ from → to は OCCTO の**基準方向**。実際の向きはコマの符号で決まる
+      //    （上の「このコマの潮流」に実際の向きが出る）
+      { key: 'from', label: '基準方向の始点' },
+      { key: 'to', label: '基準方向の終点' },
       { key: 'km', label: '経路長 (km)' },
       { key: 'shared_count', label: 'この区間を共有する線路数' },
       { key: 'shared_with', label: '共有している線路' },

@@ -96,13 +96,67 @@ function makeDashSeq(widthPx: number): number[][] {
  * 流光の電圧帯。幅は `layers.ts` の KV_LINE_WIDTH と同じ数値を帯ごとに定数化したもの。
  * ⚠️ KV_LINE_WIDTH を変えたらここも合わせること（data-driven にはできない。上の注記参照）。
  */
-export const GLOW_TIERS = [
-  { id: 'flow_glow_500', min: 500, max: null as number | null, w4: 3.2, w11: 7.4 },
-  { id: 'flow_glow_275', min: 275, max: 500 as number | null, w4: 2.2, w11: 5.2 },
-  { id: 'flow_glow_154', min: 154, max: 275 as number | null, w4: 1.5, w11: 3.6 },
-  { id: 'flow_glow_66', min: 66, max: 154 as number | null, w4: 1.0, w11: 2.4 },
-  { id: 'flow_glow_lo', min: 0, max: 66 as number | null, w4: 0.6, w11: 1.6 },
-].map((t) => ({ ...t, seq: makeDashSeq(t.w11) }))
+const TIER_WIDTHS = [
+  { key: '500', min: 500, max: null as number | null, w4: 3.2, w11: 7.4 },
+  { key: '275', min: 275, max: 500 as number | null, w4: 2.2, w11: 5.2 },
+  { key: '154', min: 154, max: 275 as number | null, w4: 1.5, w11: 3.6 },
+  { key: '66', min: 66, max: 154 as number | null, w4: 1.0, w11: 2.4 },
+  { key: 'lo', min: 0, max: 66 as number | null, w4: 0.6, w11: 1.6 },
+]
+
+/**
+ * ★ 帯 × **向き** でレイヤーを分ける（5 × 2 = 10）。
+ *
+ * ## なぜ向きでもレイヤーを分けるのか
+ *
+ * `line-dasharray` は **paint プロパティ**であって data-driven にできない。
+ * つまり 1 レイヤーの中で「この線は順方向、あの線は逆方向」を出し分けられない。
+ * 流れる向きは dash の位相を進める向きで表現しているので、
+ * **向きごとにレイヤーを分ける以外に方法がない**。
+ *
+ * ## 幾何を反転させる案を採らなかった理由
+ *
+ * 以前は publish 側で「当日平均が負なら幾何を反転」していた。1 本 1 向きに
+ * 決め打ちできたから成立していたが、コマ単位にすると **464 本中 155〜184 本
+ * （33〜40%）が窓の中で向きを変える**。コマを動かすたびに `setData` で
+ * 幾何を差し替える案も検討したが、1.5MB の GeoJSON を再パースして
+ * タイルを作り直すことになり、スライダーを引くと確実に固まる。
+ * `setFilter` なら幾何の再パースは起きない。
+ */
+export const GLOW_TIERS = TIER_WIDTHS.flatMap((t) => {
+  const seq = makeDashSeq(t.w11)
+  return [
+    { ...t, id: `flow_glow_${t.key}_fwd`, dir: 1 as const, seq },
+    { ...t, id: `flow_glow_${t.key}_rev`, dir: -1 as const, seq },
+  ]
+})
+
+/** コマ i の潮流値（符号つき）。⚠️ 値が無いコマは null */
+export const slotAt = (i: number): unknown[] => ['at', i, ['get', 'slots_mw']]
+
+/**
+ * 帯 t・コマ i のフィルタ。電圧帯で絞り、さらに**符号で向きを振り分ける**。
+ * ⚠️ null（欠測）は明示的に除く。`['>', null, 0]` は評価できない。
+ */
+export function glowFilter(t: (typeof GLOW_TIERS)[number], i: number): unknown[] {
+  const kv = ['coalesce', ['get', 'kv'], 0]
+  const band: unknown[] = t.max === null
+    ? ['>=', kv, t.min]
+    : ['all', ['>=', kv, t.min], ['<', kv, t.max]]
+  return ['all',
+    band,
+    ['!=', slotAt(i), null],
+    t.dir > 0 ? ['>', slotAt(i), 0] : ['<', slotAt(i), 0],
+  ]
+}
+
+/**
+ * コマ i の負荷率 = |潮流| ÷ 想定運用容量。
+ * ⚠️ 容量 0 で割らないよう `max(cap, 1)` で守る。
+ */
+export const utilAt = (i: number): unknown[] => [
+  '/', ['abs', slotAt(i)], ['max', ['coalesce', ['get', 'capacity_mw'], 0], 1],
+]
 
 // 周期 9px を何 ms で流すか。速度 = 9px / CYCLE_MS。
 // 1400ms では 6.4px/s で遅すぎたので 700ms（12.9px/s）に。
@@ -129,7 +183,10 @@ export function startFlowAnimation(m: mapboxgl.Map) {
       try {
         for (const t of GLOW_TIERS) {
           // ⚠️ 帯ごとに専用の系列を使う（dash の単位が線幅依存のため）
-          if (mm.getLayer(t.id)) mm.setPaintProperty(t.id, 'line-dasharray', t.seq[idx % FRAMES])
+          // ★ 逆向きの帯は**位相を逆に進める**。同じ系列を後ろから読むだけで
+          //   光が反対へ流れる。系列を別に作る必要はない。
+          const k = t.dir > 0 ? idx % FRAMES : (FRAMES - (idx % FRAMES)) % FRAMES
+          if (mm.getLayer(t.id)) mm.setPaintProperty(t.id, 'line-dasharray', t.seq[k])
         }
       } catch {
         mm.__flowRaf = null                // map が破棄済みなら静かに止める
