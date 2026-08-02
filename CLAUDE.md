@@ -142,6 +142,90 @@ uv run dagster dev -m orchestration.definitions -h 0.0.0.0 -p 3001
 > 端口与机器分工等**本地部署的选择**记在 `CLAUDE.local.md`（不进 git）——
 > 那是我们这套环境的情况，不是项目本身的约束。单机也能跑完整流程。
 
+## ⛔ pipeline 是可重跑的规则，不是一次性处理
+
+用户 2026-08-02 要求：**「所有对数据的调整，都是 pipeline 的调整而不是一次性的，
+未来有类似的新数据，我们要也能处理好」**。
+
+### 不写死上游的版本与下载日期
+
+```python
+AJG_TAG = "v1.6.0"                                     # ❌
+GEM_XLSX = "Global-Integrated-Power-March-2026-II.xlsx" # ❌
+paths.raw("gem") / "2026-08-01"                        # ❌ 下载日期
+paths.raw("ksj_p03") / "P03-13"                        # ❌
+```
+
+固定之后，新数据取进来了也**照样读旧的**——不报错、不警告，
+只是结果悄悄停留在过去。这是最难发现的一类错误。
+
+改用 `paths.latest_version()` / `paths.latest_file()`，永远指向最新，
+**取不到就抛异常**（宁可失败也不要静默用旧数据）：
+
+```python
+AJG_GLOB = "v*"
+paths.latest_version("ajg", AJG_GLOB)              # v1.6.0 → 新版が来れば自動で追随
+paths.latest_file("gem", "Global-Integrated-Power-*.xlsx")
+paths.latest_version("ksj_p03", "P03-*")
+```
+
+⚠️ 版本比较**不能用字典序** —— `v1.10.0 < v1.6.0` になる。
+`_ver_key()` が数字を取り出して数値として比べる。
+
+### ingest も版を書かない
+
+| 源 | 版の決め方 |
+|---|---|
+| `ajg` | GitHub Releases API の `latest`。⚠️ 取れなければ**例外**（古い版で成功したように見せない） |
+| `ksj_p03` | 配布ページの zip リンクを解析。未検証の版なら警告（P03-07 以前は GML で形式が別） |
+| 他 8 源 | もともと期間・ファイル一覧を毎回探索している |
+
+再現性が要るときだけ `--tag` / `--version` で固定する。
+
+**升级は必ず可視化する** —— 新しい版を見つけたらログに `★ 新しい版を検出` と出し、
+metadata に `local_versions` を残す。structured 層は `latest_version()` で
+ローカルの最新を選ぶので、**版が変わると下流の数字も変わる**。
+どの版で出した結果なのかを後から辿れるようにしておく。
+
+### 个别设施的知识放 xref，不放代码
+
+代码里**不出现具体的发电所名**（実測：`pipeline/` 全体で 0 件）。
+「柏崎刈羽の容量は 2,712MW」のような個別知識は `*_xref.json` に隔離する：
+
+| ファイル | 何を人手で補うか |
+|---|---|
+| `plant_xref.json` | 座標が自動で引けない発電所 |
+| `capacity_xref.json` | 設備容量が自動で引けない発電所 |
+
+**xref は必ず「自動優先・人手は最後」**にし、**冗長検出**を付ける ——
+上流が後から収録したら自動が勝ち、その項目は不要になったと報告される。
+そうしないと人手の値が上流の改善を永久に上書きし続ける。
+
+### 判定は規則で書く。個別対応で埋めない
+
+このセッションで足した規則はすべて「次に似たデータが来ても効く」形にしてある：
+
+| 規則 | どう一般化したか |
+|---|---|
+| 容量の取得 | GEM → AJG 発電所値 → AJG 行合算 → **座標引き** → xref → 観測下限 の 6 段 |
+| 電源種の補完 | OCCTO が「その他」でも**照合先の電源種**で補う（`fuel_source` に出所） |
+| 潮流の向き | 符号で幾何を反転（特定の線を名指ししない） |
+| 容量の妥当性 | **実測出力を下回る容量は採らない**（物理制約） |
+| 幾何の採否 | `seg_quality` の規則で判定（電圧不整合・長い直線代用は出力しない） |
+
+### 新しいデータが来たときの確認
+
+```bash
+uv run python -m pipeline.structured.plant_coords --dump   # 覆盖率 + xref 冗長/失効
+uv run python -m pipeline.structured.plant_verify          # 空間検証 4 項目
+uv run python -m pipeline.structured.flow_route_probe
+uv run python -m pipeline.structured.disaggregate
+uv run python -m pipeline.publish.geojson
+```
+
+⚠️ **`plant_verify` を飛ばさない。** 覆盖率は上がったのに中身が壊れている、
+という状態を検出できるのはこれだけ（LESSONS #23）。
+
 ## 抓取纪律
 
 各社与 OCCTO 的页面是**公开网页不是 API**，被当成攻击会直接断掉整个数据源：

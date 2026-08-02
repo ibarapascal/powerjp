@@ -42,7 +42,7 @@ from pipeline.structured.flow_match_probe import norm_station
 
 log = logging.getLogger("powerjp.flow_route")
 
-AJG_TAG = "v1.6.0"
+AJG_GLOB = "v*"          # ⚠️ 版を固定しない（LESSONS #34）
 # 潮流 CSV 的電圧字段是「500」「275」这种字符串；图里的 kv 是浮点
 # 潮流的 対象エリア ↔ 图节点的 region。
 # ⚠️ 不按区域约束会出大错：「大平」在九州和北海道都有，全国范围找会匹配到
@@ -67,7 +67,7 @@ def haversine(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def load_graph():
-    base = paths.raw("ajg", AJG_TAG) / "source"
+    base = paths.latest_version("ajg", AJG_GLOB) / "source"
     roots = [p for p in base.iterdir() if p.is_dir()]
     d = json.loads((roots[0] / "docs" / "data" / "built" / "all.json")
                    .read_text(encoding="utf-8"))

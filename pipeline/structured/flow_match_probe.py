@@ -33,7 +33,7 @@ from pipeline.core import fetch, paths
 
 log = logging.getLogger("powerjp.flow_match")
 
-AJG_TAG = "v1.6.0"
+AJG_GLOB = "v*"          # ⚠️ 版を固定しない（CLAUDE.md「上流の版を書かない」）
 
 # AJG 给变电所加了设施类型后缀，潮流侧是光名字：新信濃 vs 新信濃変電所
 # 潮流侧还会用缩写：北九州ss、讃岐SS、中央ss —— SS = substation
@@ -106,7 +106,7 @@ def line_variants(name: str) -> set[str]:
 
 
 def load_ajg():
-    base = paths.raw("ajg", AJG_TAG) / "source"
+    base = paths.latest_version("ajg", AJG_GLOB) / "source"
     roots = [p for p in base.iterdir() if p.is_dir()] if base.exists() else []
     if not roots:
         raise SystemExit("先跑 ajg ingest")

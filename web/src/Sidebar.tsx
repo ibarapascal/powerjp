@@ -3,6 +3,7 @@
  * レイヤーを増やしてもこのファイルは変更不要。
  */
 import { LAYERS, GROUP_ORDER } from './layers'
+import { CapacityLegend } from './CapacityLegend'
 
 type Props = {
   enabled: Set<string>
@@ -50,6 +51,11 @@ export function Sidebar({ enabled, loading, onToggle }: Props) {
                 </div>
               )
             })}
+            {/* 発電レイヤーは全て「円の大きさ＝容量」で描くので、
+                個々のレイヤーではなくグループの凡例として 1 つ置く */}
+            {g.name === '発電' && g.layers.some((l) => enabled.has(l.id)) && (
+              <CapacityLegend />
+            )}
           </section>
         ))}
       </div>

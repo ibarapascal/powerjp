@@ -16,7 +16,8 @@ DATA_CATALOG.md（2026-06-03 实测）记 40,077，而 v1.6.0 bundle 的配信�
 
 用法：
     python -m pipeline.sources.ajg.ingest
-    python -m pipeline.sources.ajg.ingest --tag v1.6.0 --force
+    python -m pipeline.sources.ajg.ingest                 # GitHub の最新リリース
+    python -m pipeline.sources.ajg.ingest --tag v1.6.0    # 版を固定（再現性が要るとき）
     python -m pipeline.sources.ajg.ingest --dry-run
 """
 
@@ -33,7 +34,6 @@ from pathlib import Path
 from pipeline.core import fetch, paths, report
 
 REPO = "lutelute/All-Japan-Grid"
-DEFAULT_TAG = "v1.6.0"
 VARIANT = "full"
 
 REGIONS = [
@@ -43,6 +43,40 @@ REGIONS = [
 KINDS = ["lines", "substations", "plants"]
 
 log = logging.getLogger("powerjp.ajg")
+
+
+def latest_tag() -> str:
+    """GitHub Releases API から最新のタグを取る。
+
+    ## ⚠️ 版をコードに書かない
+
+    `DEFAULT_TAG = "v1.6.0"` と固定すると、上流が更新されても永久に
+    古い版を取り続ける。しかも成功するので気づけない（LESSONS #34）。
+
+    ## 取得できないときは落とす
+
+    ネットワーク障害や API 制限のときに「とりあえず既知の版で」と
+    フォールバックすると、**古い版で成功したように見える**。
+    それが一番まずいので、取れなければ例外にして人に判断させる。
+
+    ⚠️ 再現性が要るときは `--tag` で明示的に固定すること。
+    """
+    r = fetch.get(f"https://api.github.com/repos/{REPO}/releases/latest",
+                  headers={"Accept": "application/vnd.github+json"})
+    tag = (r.json() or {}).get("tag_name")
+    if not tag:
+        raise RuntimeError(
+            f"{REPO} の最新リリースを判定できない。--tag で明示するか、"
+            "GitHub API の状態を確認する")
+    return str(tag)
+
+
+def local_versions() -> list[str]:
+    """既に取り込んである版。新旧の比較と重複ダウンロード回避に使う。"""
+    base = paths.raw("ajg")
+    if not base.is_dir():
+        return []
+    return sorted(p.name for p in base.iterdir() if p.is_dir() and p.name.startswith("v"))
 
 
 def urls(tag: str) -> dict[str, str]:
@@ -113,12 +147,23 @@ def extract(archive: Path, dest: Path, *, force: bool) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="All-Japan-Grid 几何 ingest")
-    ap.add_argument("--tag", default=DEFAULT_TAG)
+    ap.add_argument("--tag", help="版を固定する（省略時は GitHub の最新リリース）")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
     fetch.setup_logging()
+
+    have = local_versions()
+    tag = args.tag or latest_tag()
+    if args.tag:
+        log.info("版を明示指定: %s", tag)
+    elif tag in have:
+        log.info("最新リリースは %s。取り込み済み（ローカル: %s）", tag, ", ".join(have))
+    else:
+        log.info("★ 新しい版を検出: %s（ローカル: %s）", tag, ", ".join(have) or "なし")
+
+    args.tag = tag
     out = paths.raw("ajg", args.tag)
     u = urls(args.tag)
 
@@ -201,6 +246,10 @@ def main() -> None:
     report.emit(
         path=str(out),
         tag=args.tag,
+        # ⚠️ どの版を使ったかを必ず残す。structured 層は latest_version() で
+        #    ローカルの最新を選ぶので、版が変わると下流の数字も変わる
+        local_versions=have + ([args.tag] if args.tag not in have else []),
+        tag_pinned=bool(args.tag) and args.tag in (have or []),
         bytes=size,
         size_human=report.human_bytes(size),
         source_totals=totals,

@@ -1,0 +1,42 @@
+{
+  "_doc": {
+    "purpose": "設備容量（MW）の人手補完。自動取得（① GEM 名寄せ → ② AJG 発電所値 → ③ AJG 行合算 → ④ GEM 座標引き）が全滅したものだけ。",
+    "policy": "★ 自動が優先。上流が後から収録すれば自動が勝ち、ここの項目は参照されなくなる（座標の plant_xref と同じ方針）。",
+    "key": "name = split_operator() 後の正規化名（plants.json の name 列と同じ）",
+    "rule": "⚠️ 値の根拠を必ず note に書く。GEM の Status は実態より遅れることがあるので、OCCTO の当日発電量と突き合わせて妥当性を確認すること。",
+    "verify": "当日平均出力 = 発電量 ÷ 24h。これが容量を超えていたら容量が小さすぎる。",
+    "updated": "2026-08-02"
+  },
+  "entries": [
+    {
+      "name": "東京柏崎刈羽", "capacity_mw": 2712, "source": "GEM", "confidence": "high",
+      "note": "柏崎刈羽原子力。GEM は 3km 圏に 2 群を持つ: mothballed 5基 5,500MW（1〜5号機 110万kW×5）と construction 2基 2,712MW（6・7号機 135.6万kW×2）。総設備は 8,212MW だが、⚠️ GEM の Status は実態より遅れており 6・7 号機は既に再稼働している（OCCTO が当日 30.9GWh を計上＝平均 1,287MW の出力がある）。現役ぶんの 2,712MW を採る。1〜5 号機は長期停止のため含めない。"
+    },
+    {
+      "name": "姫路天然ガス", "capacity_mw": 1245.2, "source": "GEM", "confidence": "medium",
+      "note": "GEM は construction 2基 1,245.2MW と announced 1基 622.6MW を持つ。⚠️ Status は遅れており実際は稼働中（OCCTO 当日 22.7GWh＝平均 947MW）。平均出力 947MW は 622.6MW を超えるので announced 側だけでは説明できない。construction 2 基ぶんの 1,245.2MW を採る。"
+    },
+    {
+      "name": "ひびき", "capacity_mw": 620, "source": "GEM", "confidence": "medium",
+      "note": "ひびき天然ガス発電所。GEM は cancelled 3基 1,260MW と construction 1基 620MW を持つ。当日 11.0GWh＝平均 460MW で 620MW に収まる。cancelled ぶんは実在しないとみて除く。"
+    },
+    {
+      "name": "泉北天然ガス第一", "capacity_mw": 1109, "source": "GEM", "confidence": "low",
+      "note": "⚠️ **発電所全体の値**。GEM は `Senboku Natural Gas power plant` を operating 4基 1,109MW として 1 件で持ち、第一／第二を区別しない。一方 OCCTO は第一・第二の 2 系列に分けて報告する。系列ごとの内訳が取れないため、両方に全体値を入れている。**容量を合計すると二重計上になる**。負荷率も過小に出る。"
+    },
+    {
+      "name": "泉北天然ガス第二", "capacity_mw": 1109, "source": "GEM", "confidence": "low",
+      "note": "⚠️ 上記「泉北天然ガス第一」と同一の発電所全体値。二重計上に注意。"
+    },
+    {
+      "name": "名古屋第二", "capacity_mw": 149, "source": "GEM", "confidence": "low",
+      "note": "⚠️ **発電所全体の値**。中山名古屋共同発電。GEM は `Nagoya power station` を operating 1基 149MW として持つが、OCCTO は「名古屋」「名古屋第二」の 2 つに分けて報告する。内訳が無いため両方が同じ全体値を指すことになる。二重計上に注意。"
+    }
+  ],
+  "_no_data": {
+    "_note": "座標も容量も取れないもの。座標が無いので GEM の座標引きも効かない。",
+    "奥矢作": "OCCTO は「奥矢作発電所」とだけ書くが、実在するのは奥矢作第一（323MW）と第二（780MW）の 2 か所。**どちらを指すか判別できない**ため座標ごと未確定（plant_xref の _rejected 参照）。当日 0.04%",
+    "水島製油所B工場": "ENEOS 水島製油所の自家発。GEM の水島 3 件はいずれも B 工場と特定できない。当日 0.02%",
+    "エフビット横須賀パワー横須賀": "三源とも該当なし。当日 0.00%"
+  }
+}

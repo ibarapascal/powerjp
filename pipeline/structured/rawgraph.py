@@ -61,7 +61,7 @@ from pipeline.structured.flow_match_probe import norm_station
 
 log = logging.getLogger("powerjp.rawgraph")
 
-AJG_TAG = "v1.6.0"
+AJG_GLOB = "v*"          # ⚠️ 版を固定しない（CLAUDE.md「上流の版を書かない」）
 SNAP_M = 25.0          # 线段端点互相吸附的半径（米）
 SUB_SNAP_M = 400.0     # 线端点吸附到变电所的半径（米）
 REGIONS = ["hokkaido", "tohoku", "tokyo", "chubu", "hokuriku",
@@ -81,7 +81,7 @@ def haversine_m(a, b) -> float:
 
 
 def build(snap_m: float = SNAP_M, sub_snap_m: float = SUB_SNAP_M):
-    base = paths.raw("ajg", AJG_TAG) / "source"
+    base = paths.latest_version("ajg", AJG_GLOB) / "source"
     src = [p for p in base.iterdir() if p.is_dir()][0]
     data = src / "data"
 

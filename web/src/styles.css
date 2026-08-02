@@ -219,3 +219,37 @@ body {
   font-size: 10px;
 }
 .mapboxgl-ctrl-attrib a { color: var(--muted) !important; }
+
+/* ── 設備容量の同心円凡例 ── */
+.cap-legend {
+  margin: 10px 0 2px 24px;
+  padding: 10px 10px 8px;
+  background: rgba(11, 15, 20, 0.5);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.cap-legend-title {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  color: var(--text);
+}
+.cap-legend svg circle {
+  fill: none;
+  stroke: #7d8b9c;
+  /* stroke-width は SVG 属性で半径に応じて指定する */
+}
+.cap-legend svg line {
+  stroke: #4a5563;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.cap-legend svg text {
+  fill: var(--muted);
+  font-size: 9.5px;
+}
+.cap-legend-note {
+  margin: 8px 0 0;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}

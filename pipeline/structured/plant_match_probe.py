@@ -27,7 +27,7 @@ from pipeline.core import fetch, paths
 
 log = logging.getLogger("powerjp.plant_match")
 
-AJG_TAG = "v1.6.0"
+AJG_GLOB = "v*"          # ⚠️ 版を固定しない（CLAUDE.md「上流の版を書かない」）
 REGIONS = ["hokkaido", "tohoku", "tokyo", "chubu", "hokuriku",
            "kansai", "chugoku", "shikoku", "kyushu", "okinawa"]
 
@@ -126,7 +126,7 @@ def load_occto_units(day: str | None) -> list[dict]:
 
 
 def load_ajg_plants() -> list[dict]:
-    base = paths.raw("ajg", AJG_TAG) / "source"
+    base = paths.latest_version("ajg", AJG_GLOB) / "source"
     roots = [p for p in base.iterdir() if p.is_dir()] if base.exists() else []
     if not roots:
         raise SystemExit(f"{base} 下没有 AJG 源，先跑 ajg ingest")

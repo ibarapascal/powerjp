@@ -78,7 +78,7 @@ from pathlib import Path
 import openpyxl
 
 from pipeline.core import fetch, paths, report
-from pipeline.structured.plant_coords import (GEM_XLSX, build_pool, pick,
+from pipeline.structured.plant_coords import (GEM_GLOB, build_pool, pick,
                                               split_operator, valid)
 
 log = logging.getLogger("powerjp.disagg")
@@ -131,7 +131,7 @@ def build_pref_index() -> list[tuple]:
     """
     import shapefile
     pts: list[tuple] = []
-    base = paths.raw("ksj_p03") / "P03-13" / "extracted" / "SHP"
+    base = paths.latest_version("ksj_p03", "P03-*") / "extracted" / "SHP"
     for shp in sorted(base.glob("*.shp")):
         r = shapefile.Reader(str(shp.with_suffix("")), encoding="cp932",
                              encodingErrors="replace")
@@ -209,7 +209,7 @@ def load_jepoc() -> list[dict]:
 
 def load_gem(kind: str, index: list[tuple]) -> list[dict]:
     """GEM 的某类电源（operating），自带坐标 + 都道府県。"""
-    wb = openpyxl.load_workbook(paths.raw("gem") / "2026-08-01" / GEM_XLSX, read_only=True)
+    wb = openpyxl.load_workbook(paths.latest_file("gem", GEM_GLOB), read_only=True)
     rows = wb["Power facilities"].iter_rows(values_only=True)
     hdr = next(rows)
     C = {h: i for i, h in enumerate(hdr) if h}

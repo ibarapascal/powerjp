@@ -42,15 +42,56 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import shutil
 import zipfile
 from pathlib import Path
 
 from pipeline.core import fetch, paths, report
 
-# 2013 年度版（平成25年度）。更早的 P03-95 / P03-07 是 GML 格式、另一套产品规格。
-VERSION = "P03-13"
-URL = f"https://nlftp.mlit.go.jp/ksj/gml/data/P03/{VERSION}/{VERSION}.zip"
+# ⚠️ 版はコードに書かず、配布ページから拾う（CLAUDE.md「上流の版を書かない」）。
+#
+# 2026-08-02 時点で配布されているのは P03-95 / P03-07 / P03-13 の 3 つだけで、
+# zip があるのは **P03-13（平成25年度＝2013年度）のみ**。
+# 古い 2 つは GML 形式で製品仕様が別物なので、そもそも読めない。
+#
+# ★ この源は **12 年間更新されていない**。だから固定しても当面は動くが、
+#   固定すると「更新されたのに気づかない」状態が永続する。
+#   毎回ページを見て、新しい版が出たら気づけるようにしておく。
+LIST_URL = "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P03.html"
+FALLBACK_VERSION = "P03-13"     # ページが取れないときの既知の最新
+
+# 読み込みを検証済みの版。これ以外が来たら形式が違う可能性がある
+KNOWN_GOOD = {"P03-13"}
+
+
+def discover_version() -> str:
+    """配布ページから zip のある最新の版を拾う。
+
+    ⚠️ 新しい版が出ても形式が同じとは限らない（P03-07 以前は GML）。
+    未検証の版を掴んだら**警告を出す** —— 黙って進めて下流が壊れるより、
+    人が形式を確認してから進める方がよい。
+    """
+    try:
+        text = fetch.get(LIST_URL).text
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("配布ページを取得できず（%s）。既知の最新 %s を使う",
+                    type(exc).__name__, FALLBACK_VERSION)
+        return FALLBACK_VERSION
+    vs = sorted(set(re.findall(r"/data/P03/(P03-\d+)/P03-\d+\.zip", text)),
+                key=lambda v: int(v.split("-")[1]))
+    if not vs:
+        log.warning("配布ページに zip リンクが見当たらない。既知の最新 %s を使う",
+                    FALLBACK_VERSION)
+        return FALLBACK_VERSION
+    latest = vs[-1]
+    if latest not in KNOWN_GOOD:
+        log.warning("★ 未検証の版 %s を検出（既知: %s）。"
+                    "GML から shapefile への変更のように形式が変わる場合があるので、"
+                    "下流の読み込みを確認すること", latest, ", ".join(sorted(KNOWN_GOOD)))
+    elif len(vs) > 1:
+        log.info("配布中の版: %s → 最新 %s", ", ".join(vs), latest)
+    return latest
 
 log = logging.getLogger("powerjp.ksj_p03")
 
@@ -82,33 +123,36 @@ def extract(zip_path: Path, dest: Path, *, force: bool) -> Path:
     return dest
 
 
-def count_records(shp_dir: Path) -> dict[str, int]:
+def count_records(shp_dir: Path, version: str) -> dict[str, int]:
     """数每个 shapefile 的记录数。用 .shx 索引文件算：头 100 字节 + 每条 8 字节。"""
     out: dict[str, int] = {}
     for shx in sorted(shp_dir.glob("*.shx")):
-        layer = shx.stem.replace(f"{VERSION}-g_", "")
+        layer = shx.stem.replace(f"{version}-g_", "")
         out[layer] = max(0, (shx.stat().st_size - 100) // 8)
     return out
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="国土数値情報 発電施設 P03 ingest")
+    ap.add_argument("--version", help="版を固定する（省略時は配布ページの最新）")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
     fetch.setup_logging()
 
-    out_dir = paths.raw("ksj_p03", VERSION)
+    version = args.version or discover_version()
+    url = f"https://nlftp.mlit.go.jp/ksj/gml/data/P03/{version}/{version}.zip"
+    out_dir = paths.raw("ksj_p03", version)
     if args.dry_run:
-        log.info("dry-run —— 下载 %s → %s", URL, out_dir)
+        log.info("dry-run —— 下载 %s → %s", url, out_dir)
         return
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = out_dir / f"{VERSION}.zip"
-    fetch.download(URL, zip_path, force=args.force)
+    zip_path = out_dir / f"{version}.zip"
+    fetch.download(url, zip_path, force=args.force)
     extracted = extract(zip_path, out_dir / "extracted", force=args.force)
 
-    counts = count_records(extracted / "SHP")
+    counts = count_records(extracted / "SHP", version)
     size = paths.dir_size(out_dir)
     log.info("解压完成：%s", extracted)
     for layer, n in sorted(counts.items(), key=lambda x: -x[1]):
@@ -119,11 +163,13 @@ def main() -> None:
         path=str(out_dir),
         bytes=size,
         size_human=report.human_bytes(size),
-        version=VERSION,
+        version=version,
+        # ⚠️ 上流は 2013 年度版から更新されていない。版が変わったら形式も要確認
+        version_pinned=bool(args.version),
         rows=sum(counts.values()),
         by_layer=counts,
         has_coordinates=True,           # ★ 这是它相对 JEPOC / FIT 的关键优势
-        vintage="2013 年度（平成25年度）",
+        vintage="2013 年度（平成25年度）" if version == "P03-13" else version,
         crs="见各 .prj（JGD2000 系）",
         licence="国土数値情報 利用約款（政府开放数据，需注明出处）",
         source_url="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P03.html",

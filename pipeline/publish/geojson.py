@@ -41,7 +41,7 @@ import json
 import logging
 
 from pipeline.core import fetch, paths, report
-from pipeline.structured.plant_coords import AJG_TAG
+from pipeline.structured.plant_coords import AJG_GLOB
 
 log = logging.getLogger("powerjp.publish")
 
@@ -66,7 +66,7 @@ def write(name: str, features: list) -> int:
 
 
 def ajg_root():
-    base = paths.raw("ajg", AJG_TAG) / "source"
+    base = paths.latest_version("ajg", AJG_GLOB) / "source"
     return [p for p in base.iterdir() if p.is_dir()][0]
 
 
@@ -150,7 +150,20 @@ def _kv(v) -> float:
 
 
 def load_flow_mw() -> dict:
-    """(エリア, 送電線名) → 当日の平均|潮流| (MW)。流光の色分けに使う。"""
+    """(エリア, 送電線名) → {"abs": 平均|潮流|, "signed": 符号つき平均} (MW)。
+
+    ## ⚠️ 「潮流方向(正方向)」は**基準**であって実際の向きではない
+
+    OCCTO は各線路に基準の向きを決めて、その向きを正として値を出す。
+    **負の値は逆向きに流れていることを意味する**。
+
+    実測（2026-07-31・九州）: 71 本中 **38 本（54%）が平均で負**。
+    例：脊振西福岡線 は「西福岡→脊振」を正方向として −486MW、
+    つまり実際は **脊振→西福岡**（福岡市街へ流入）している。
+
+    絶対値だけ取ると流光が全部「正方向＝市街から外向き」に流れてしまい、
+    負荷中心へ流れ込んでいる電力が逆に見える。
+    """
     import csv
     import io
     root = paths.raw("occto_flow")
@@ -173,12 +186,16 @@ def load_flow_mw() -> dict:
             for k, v in r.items():
                 if k and ":" in str(k):          # 00:00 … 23:30 の各コマ
                     try:
-                        vals.append(abs(float(str(v).replace(",", ""))))
+                        vals.append(float(str(v).replace(",", "")))
                     except (TypeError, ValueError):
                         pass
             if vals:
-                out[(ar, nm)] = sum(vals) / len(vals)
-    log.info("潮流値 %d 本ぶん読込（対象日 %s）", len(out), last)
+                signed = sum(vals) / len(vals)
+                out[(ar, nm)] = {"abs": sum(abs(v) for v in vals) / len(vals),
+                                 "signed": signed}
+    n_rev = sum(1 for v in out.values() if v["signed"] < 0)
+    log.info("潮流値 %d 本ぶん読込（対象日 %s）／基準と逆向き %d 本 (%.0f%%)",
+             len(out), last, n_rev, n_rev / max(len(out), 1) * 100)
     return out
 
 
@@ -242,7 +259,18 @@ def build_flow() -> int:
     dropped_km = 0.0
     for r in json.loads(p.read_text(encoding="utf-8")):
         segs = r.get("segments") or []
-        mw = mw_map.get((r["area"], r["line"]))
+        rec = mw_map.get((r["area"], r["line"])) or {}
+        mw = rec.get("abs")
+        signed = rec.get("signed")
+        # ★ 実際の流向が基準と逆なら**幾何そのものを反転**する。
+        #   流光は dasharray を線の向きに沿って進めるだけなので、
+        #   幾何が正しい向きを向いていないと逆走して見える。
+        reversed_ = signed is not None and signed < 0
+        frm, to = r["from"], r["to"]
+        if reversed_:
+            segs = [{**sg, "coords": list(reversed(sg.get("coords") or []))}
+                    for sg in reversed(segs)]
+            frm, to = to, frm
         for i, sg in enumerate(segs):
             c = sg.get("coords") or []
             if len(c) < 2:
@@ -264,7 +292,11 @@ def build_flow() -> int:
                     # ⚠️ 段の実電圧。線路全体の公称電圧ではない
                     "kv": _kv(sg.get("kv")),
                     "line_kv": _kv(r["kv"]),
-                    "from": r["from"], "to": r["to"], "km": r["km"],
+                    # ⚠️ 反転した場合は始点・終点も入れ替えて表示する
+                    "from": frm, "to": to,
+                    "flow_reversed": reversed_,
+                    "mw_signed": round(signed, 1) if signed is not None else None,
+                    "km": r["km"],
                     # 当日の平均|潮流|
                     "mw": round(mw, 1) if mw is not None else None,
                     # ★ 負荷率 = |潮流| ÷ 想定運用容量。流光の色はこれで決まる。
@@ -310,6 +342,16 @@ def build_flow() -> int:
     return write("flow_lines.geojson", feats)
 
 
+def _last_mw(slots):
+    """最新コマの出力（MW）。末尾が欠測なら遡って最後の実測値を採る。"""
+    if not slots:
+        return None
+    for v in reversed(slots):
+        if v is not None:
+            return float(v)
+    return None
+
+
 def build_plants() -> int:
     p = paths.structured("plants") / "plants.json"
     if not p.is_file():
@@ -324,7 +366,28 @@ def build_plants() -> int:
             "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]},
             "properties": {
                 "name": r["name"], "operator": r["operator"], "area": r["area"],
-                "fuel": r["fuel"], "kwh": r["kwh_sample_day"],
+                "fuel": r["fuel"],
+                # occto = OCCTO の分類そのまま / matched = 照合先から推定
+                "fuel_source": r.get("fuel_source"),
+                "kwh": r["kwh_sample_day"],
+                # ★ 設備容量（MW）
+                "capacity_mw": r.get("capacity_mw"),
+                # ⚠️ `cf` は**当日平均**の設備利用率（累計 ÷ 容量×24h）。
+                #    扇形には使わない —— 昼だけ全開の機組が 40% に見えてしまう。
+                "cf": (round(min((r["kwh_sample_day"] or 0) / 1000.0
+                                 / (r["capacity_mw"] * 24), 1.0), 4)
+                       if r.get("capacity_mw") else None),
+                # ★ 扇形が表すのは**その時刻の出力 ÷ 容量**。
+                #   `load` は最新コマ（23:30）の値。時間軸を付けたら
+                #   `slots_mw` の任意のコマに差し替える（TODO R1）。
+                "mw_now": _last_mw(r.get("slots_mw")),
+                "load": (round(min(_last_mw(r.get("slots_mw")) / r["capacity_mw"], 1.0), 4)
+                         if r.get("capacity_mw") and _last_mw(r.get("slots_mw")) is not None
+                         else None),
+                # 30 分 × 48 コマ。時間軸表示用
+                "slots_mw": r.get("slots_mw"),
+                # GEM_operating = 現役のみ / AJG_installed_ever = 廃炉分を含む
+                "capacity_source": r.get("capacity_source"),
                 "data_quality": "measured",          # OCCTO 逐机组实测
                 "coord_source": r["coord_source"], "match_method": r["match_method"],
             },
