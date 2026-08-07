@@ -270,18 +270,18 @@ uv run python -m pipeline.publish.geojson
 
 ## 当前状态
 
-### raw 层（10 个 asset，全部打通）
+### raw 层（7 个 asset）
+
+> ⚠️ 2026-08-07 に `jepx` / `fit` / `occto_capacity` を削除（未使用 + 許諾の整理のため）。
+> 経緯は `TODO.md` §1.1b、`ATTRIBUTION.md`「Removed sources」。
 
 | asset | 类型 | 状态 |
 |---|---|---|
 | `raw_ajg` | auto | ✅ v1.6.0，线 40,077 / 变电所 6,962 / 发电所 19,138；另有 `generators` 688 个 ≥10MW **带完整调度参数**。506MB |
 | `raw_area_jukyu` | auto | ✅ 10 社 487 文件。⚠️ 東京·四国 FY2023 以前未取得；⚠️ FY2024+ 统一格式与 FY2023- 的 24 种异构表头并存 |
-| `raw_jepx_spot` | auto | ✅ FY2005–FY2026、374,086 行 |
-| `raw_occto_capacity` | auto | ✅ FY2023–FY2025 的 12 个 PDF。**尚未解析** |
 | `raw_occto_flow` | auto | ✅ 逐线潮流 30 分 × 10 区域，**匿名公表身份即可**。回填中 |
 | `raw_occto_unit` | auto | ✅ **逐机组 × 30 分**，859 天 / 413,546 条 / 502MB，2024-03-25→今 |
 | `raw_jepoc_hydro` | auto | ✅ 水力 1,801 座（帯 `output_kw`/発電方式）。⚠️ **无坐标** |
-| `raw_fit` | auto | ✅ 市町村别認定・導入量，71 文件。⚠️ **无坐标**（市町村聚合） |
 | `raw_ksj_p03` | auto | ✅ 発電施設 12,814 条 9 层，**带坐标**。⚠️ 对 AJG 独有贡献 0pt，但住所字段用于坐标→都道府県反查 |
 | `raw_gem` | manual | ✅ GIPT March 2026，日本 12,074 行 52 列，**100% 坐标**。唯一有增量的坐标源（+5.0pt） |
 

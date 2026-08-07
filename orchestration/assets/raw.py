@@ -50,17 +50,6 @@ def raw_ajg(context: AssetExecutionContext, cfg: PowerjpConfig) -> MaterializeRe
 
 
 @asset(group_name="raw_network", compute_kind="download")
-def raw_occto_capacity(
-    context: AssetExecutionContext, cfg: PowerjpConfig
-) -> MaterializeResult:
-    """OCCTO 連系線運用容量（年度公告 PDF、10 年分）。
-
-    「潮流 ÷ 运用容量 = 利用率」的分母。PDF 原样落盘，表抽取在 structured 阶段。
-    """
-    return run_and_report(context, cfg, "pipeline.sources.occto_capacity.ingest")
-
-
-@asset(group_name="raw_network", compute_kind="download")
 def raw_occto_flow(
     context: AssetExecutionContext, cfg: PowerjpConfig, config: IngestWindow
 ) -> MaterializeResult:
@@ -87,17 +76,6 @@ def raw_area_jukyu(
     FY2023 以前各社各不相同。详见 INGEST.md。
     """
     return run_and_report(context, cfg, "pipeline.sources.area_jukyu.ingest")
-
-
-@asset(group_name="raw_timeseries", compute_kind="download")
-def raw_jepx_spot(
-    context: AssetExecutionContext, cfg: PowerjpConfig
-) -> MaterializeResult:
-    """JEPX スポット市場（システムプライス＋エリアプライス 9 地域、30 分）。
-
-    按年度一个 CSV，FY2005 起。沖縄不在エリアプライス的对象内。
-    """
-    return run_and_report(context, cfg, "pipeline.sources.jepx.ingest", "--all")
 
 
 @asset(group_name="raw_generation", compute_kind="download")
@@ -155,11 +133,3 @@ def raw_jepoc_hydro(
     return run_and_report(context, cfg, "pipeline.sources.jepoc_hydro.ingest")
 
 
-@asset(group_name="raw_generation", compute_kind="download")
-def raw_fit(context: AssetExecutionContext, cfg: PowerjpConfig) -> MaterializeResult:
-    """FIT/FIP 認定・導入量（**市町村别**，季度，2017-06→今）。
-
-    A表 都道府県別 / B表 市町村別 / C表 買取電力量。分布式光伏·风电的空间分布。
-    ⚠️ 是市町村级聚合，**没有逐设施坐标**。
-    """
-    return run_and_report(context, cfg, "pipeline.sources.fit.ingest")

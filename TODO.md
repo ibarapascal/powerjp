@@ -26,6 +26,21 @@
 | **`ksj_p03`** | 国土数値情報 発電施設，**12,814 条 9 层**（揚水 46 / 池 92 / 水力 698 / 风力 417 / 光伏 10,654…） | ✅ **有** | ✅ 2026-08-01。⚠️ 对 AJG **独有贡献 0pt** |
 | **`gem`** | GIPT March 2026：全球 182,428 / **日本 12,074 行 52 列**，带 **Lat/Lon + Location accuracy + 日文原名** | ✅ **有** | ✅ 2026-08-01。**唯一有增量的坐标源（+5.0pt）**。manual：gated 表单 |
 
+### 1.1b 已删除（2026-08-07）—— ⛔ 不要重新提议采集
+
+三个源采集了但**从未被任何发布产物消费**，连同 raw 数据一起删除。
+理由是**许可**：不用的源会让 `ATTRIBUTION.md` 里的 `TO VERIFY` 一直挂着，
+而那些数据从来没有被分发过。
+
+| 源 | 体积 | 为什么删 |
+|---|---|---|
+| `jepx` | 40M / 22 文件 | 系统价・区域价。没有任何图层用它 |
+| `fit` | 64M / 71 文件 | FIT/FIP 市町村别。没有任何图层用它 |
+| `occto_capacity` | 27M / 12 PDF | **連系線**运用容量。而潮流数据里 316 条线名中**連系線 0 条**——OCCTO 把連系線单独公表。这批容量对不上任何一条我们画的线 |
+
+⚠️ 三个源都**无凭据可重新取得**，ingest 代码留在 git 历史里。
+需要时从历史恢复 + 重跑即可。
+
 ### 1.2 已知需要、尚未打通
 
 **空。** GEM 已于 2026-08-01 打通（见 §1.1），原「各社 空き容量」移到 §1.3 C11。
@@ -88,10 +103,15 @@
 | S4 | `ts_area`：10 社 487 个异构 CSV → 统一 schema | — | 最脏最费时的活，早做早好 |
 | S5 | `ts_flow`：潮流 CSV → Parquet | S3 | |
 | S6 | `ts_unit`：机组 JSON → Parquet | S1 | |
-| S7 | `ts_price`：JEPX CSV → Parquet | — | 相对简单 |
+| S7 | ~~`ts_price`：JEPX CSV → Parquet~~ | — | ⛔ **`jepx` は 2026-08-07 に削除**。やるなら先に ingest を git 履歴から戻す |
 | S8 | `net_nodes` / `net_edges`：AJG → PostGIS | — | 必须带 `connectivity_confidence` |
 | S9 | ✅ ~~建 `orchestration/assets/structured.py`~~ | — | **2026-08-01 完成**。4 个 asset（plants / plant_verify / lines / disaggregated），依赖图 raw→structured 已建立，各脚本 `report.emit` 指标进 Dagster metadata，产物落 `storage/structured/` |
-| S10 | 解析 `occto_capacity` 的 PDF | — | **保留（用户 2026-08-02：先不用）**。12 个 PDF 躺着没动。前端的负荷率现在用**电压等级估算的容量**，而那个估算是拿实测最大值反推的凑数（循环论证、无物理依据，导致「100% 红」永远不会出现）。至少联络线部分能拿到官方运用容量 |
+| S10 | ~~解析 `occto_capacity` 的 PDF~~ | — | ⛔ **2026-08-07 削除。** ⚠️ **これは R3（容量を真値にする）の解ではなかった** ——
+`occto_capacity` は**連系線**の容量で、公表している潮流 316 本には
+**連系線が 1 本も含まれていない**（OCCTO が別建てで公表しているため）。
+つまり解析しても対応する線が無い。有効になるのは **F2（連系線潮流の取得）**が
+先に済んでからで、そのときは ingest を git 履歴から戻す。
+**R3 の解は別に要る**（各社の系統図か空き容量公表。C11 参照） |
 | S11 | **修 AJG ingest：把 source 侧 `docs/data/` 的 11 个图层也统计进 metadata** | — | 现在只统计 bundle 侧 4 个，`generators.geojson` 这种关键图层统计不到，差点被忽略 |
 
 ---

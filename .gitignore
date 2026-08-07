@@ -7,8 +7,9 @@
 credentials.json
 .wrangler/
 
-# 本地个人指示（实体在 repo 外，见 CLAUDE.local.md 说明）
+# 本地个人指示・作业用メモ（*.local.md は一切追跡しない）
 CLAUDE.local.md
+*.local.md
 
 # 数据本体：体积大，且部分源的再配布许可未确认
 storage/

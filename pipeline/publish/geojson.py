@@ -731,15 +731,31 @@ def build_plants(stamps: list[str] | None = None) -> tuple[int, int]:
     return write("plants.geojson", feats), last
 
 
+# ⛔ 配信しない電源種。
+#
+# 水力の**一覧**（発電所名・事業者・発電方式・出力）は JEPOC 水力発電所
+# データベース由来で、同サイトのポリシーは個人利用を除く複製・転載を
+# 許諾制としている。許諾が確認できるまで**配信物に載せない**
+# （ユーザー判断 2026-08-07：公開できないデータは前端に出さない）。
+#
+# ⚠️ ローカルの `structured/` には残る。止めているのは**配信**だけ。
+# ⚠️ 許諾が取れたらこの集合を空にするだけで戻る。他は触らないこと。
+SITES_WITHHELD_KINDS = {"水力"}
+
+
 def build_sites() -> int:
     p = paths.structured("disaggregated") / "sites.json"
     if not p.is_file():
         log.warning("%s 不存在 —— 先跑 structured_disaggregated", p)
         return 0
     feats = []
+    withheld = 0
     for r in json.loads(p.read_text(encoding="utf-8")):
         pt = r.get("pt")
         if not pt:
+            continue
+        if r.get("kind") in SITES_WITHHELD_KINDS:
+            withheld += 1
             continue
         feats.append({
             "type": "Feature",
@@ -753,7 +769,40 @@ def build_sites() -> int:
                 "mwh": round(sum(r["series"]) / 2, 1),
             },
         })
+    if withheld:
+        log.info("配信保留 %d 件（%s）—— 許諾未確認のため",
+                 withheld, "・".join(sorted(SITES_WITHHELD_KINDS)))
     return write("sites.geojson", feats)
+
+
+DATA_LICENSE_TXT = """\
+powerjp — published data
+========================
+
+These files are a Derivative Database under the Open Database License (ODbL) v1.0,
+because they contain geometry derived from OpenStreetMap via the All-Japan-Grid
+project. You are free to share, adapt and use them, provided that you attribute,
+keep the data open, and license any derivative database under ODbL.
+
+  Full licence: https://opendatacommons.org/licenses/odbl/1-0/
+
+Attribution
+-----------
+Contains information from All-Japan-Grid (https://github.com/lutelute/All-Japan-Grid)
+and OpenStreetMap (https://www.openstreetmap.org/copyright), available under ODbL.
+
+Power flow and per-unit generation output: OCCTO
+(https://www.occto.or.jp/). These values have been edited and processed —
+line routes are solved on a graph and are not official route diagrams.
+
+Facility coordinates: 国土数値情報 (MLIT), Global Energy Monitor.
+
+Note
+----
+Values marked `data_quality: estimated` are apportioned estimates, not
+measurements at that location. See the map's own attribution panel for the
+full per-source breakdown.
+"""
 
 
 def write_manifest(built: list[str]) -> None:
@@ -764,7 +813,21 @@ def write_manifest(built: list[str]) -> None:
     ⚠️ 層の定義は `spec.LAYER_FILES` が唯一の出所。ここで並べ直さない。
     """
     d = out_dir()
-    man: dict = {"built": built}
+    # ★ 配信物そのものに許諾を載せる。
+    #   ⚠️ 前端の画面にだけ書いても、GeoJSON を直接取得した人には届かない。
+    #   ODbL は**成果物に許諾と出典を添えること**を求めるので、
+    #   manifest と LICENSE.txt の両方をデータと一緒に配る。
+    man: dict = {
+        "built": built,
+        "licence": "ODbL-1.0",
+        "attribution": (
+            "Contains information from All-Japan-Grid and OpenStreetMap, "
+            "available under the Open Database License (ODbL). "
+            "Power flow and unit output: OCCTO (modified). "
+            "Facility coordinates: 国土数値情報 (MLIT), Global Energy Monitor."
+        ),
+        "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+    }
     for layer, names in spec.LAYER_FILES.items():
         man[layer] = [
             {"file": n, "bytes": (d / n).stat().st_size,
@@ -773,6 +836,8 @@ def write_manifest(built: list[str]) -> None:
         ]
     (d / "manifest.json").write_text(
         json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
+    # データを直接取得した人にも届くよう、平文でも置く
+    (d / "LICENSE.txt").write_text(DATA_LICENSE_TXT, encoding="utf-8")
 
 
 def main() -> None:

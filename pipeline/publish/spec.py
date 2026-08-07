@@ -46,6 +46,19 @@ LAYER_FILES: dict[str, list[str]] = {
 }
 
 # `--only` / Dagster config が受け取る値。`all` は両方
+# ★ 層に属さないが**必ず一緒に配る**もの。
+#
+# ⚠️ `LICENSE.txt` を落とさないこと。配信している GeoJSON は OSM 由来の
+#    幾何を含む派生データベースなので ODbL の対象で、**許諾と出典を成果物に
+#    添えるのは義務**。前端の画面にだけ書いても、GeoJSON を直接取得した人には
+#    届かない。
+# ⚠️ `manifest.json` は前端が鮮度を判定するのに使う（`web/src/manifest.ts`）。
+#    これが無いと dynamic の更新に追従できない。
+ALWAYS_FILES: list[str] = [
+    "manifest.json",
+    "LICENSE.txt",
+]
+
 SCOPES = ["all", *LAYER_FILES]
 
 
@@ -54,6 +67,17 @@ def files_for(scope: str) -> list[str]:
     if scope == "all":
         return [f for names in LAYER_FILES.values() for f in names]
     return list(LAYER_FILES[scope])
+
+
+def upload_files(scope: str = "all") -> list[str]:
+    """配信スクリプトが**実際に上げるべき**ファイル一覧。
+
+    層のファイル + `ALWAYS_FILES`。⚠️ アップロード側でこの一覧を
+    書き直さないこと —— 片方だけ直すと LICENSE が落ちる。
+    ⚠️ `manifest.json` は**最後に**上げる（`CLAUDE.md` 約定 8 の発行順）。
+    """
+    return [*files_for(scope), *[f for f in ALWAYS_FILES if f != "manifest.json"],
+            "manifest.json"]
 
 
 def layer_of(filename: str) -> str | None:

@@ -17,6 +17,7 @@
 import { useState } from 'react'
 import { LAYERS, GROUP_ORDER, GROUP_LEGENDS, PARENTS } from './layers'
 import type { LayerDef } from './layers'
+import { LicenseDialog } from './LicenseDialog'
 
 /** 公開予定の repo。⚠️ 現在はまだ private */
 const REPO_URL = 'https://github.com/ibarapascal/powerjp'
@@ -33,6 +34,7 @@ type Props = {
 export function Sidebar({ enabled, loading, counts, onToggle, onToggleMany }: Props) {
   // 既定は**展開**（ユーザー要求 2026-08-07）。閉じた状態を覚えるより
   // 「中身が見えている」ことを優先する。畳むのは手で ▾ を押したとき
+  const [licOpen, setLicOpen] = useState(false)
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(PARENTS.map((p) => p.id)),
   )
@@ -175,13 +177,18 @@ export function Sidebar({ enabled, loading, counts, onToggle, onToggleMany }: Pr
             )}
           </section>
         ))}
+        {/* ⚠️ 出典への入口は消せない —— AJG/OSM は ODbL、OCCTO は出典明記が条件。
+            地図の右下から customAttribution を外したぶん、ここが唯一の導線になる。
+            ⚠️ 一覧の**中**に置く（固定しない）。下端に貼り付けると
+            レイヤーが増えたときに常時場所を取る（要求 2026-08-07）。 */}
+        <footer className="attrib">
+          <button className="attrib-link" onClick={() => setLicOpen(true)}>
+            データの出典とライセンス
+          </button>
+        </footer>
       </div>
 
-      {/* ⚠️ 出典の 1 行は消せない —— AJG/OSM は ODbL、OCCTO は出典明記が条件。
-          地図の右下から customAttribution を外したぶん、ここが唯一の表記になる。 */}
-      <footer className="attrib">
-        <p className="muted">OCCTO / AJG (OSM, ODbL) / GEM / 国土数値情報</p>
-      </footer>
+      {licOpen && <LicenseDialog onClose={() => setLicOpen(false)} />}
     </aside>
   )
 }

@@ -313,8 +313,10 @@ body {
 .layer.nested { padding: 3px 0 3px 7px; }
 .layer.nested .label { font-size: var(--fs-2); }
 
+/* ⛔ 下端に固定しない。一覧と一緒にスクロールする（要求 2026-08-07） */
 .attrib {
-  padding: 9px 14px 11px;
+  margin: 14px 14px 0;
+  padding: 10px 0 4px;
   border-top: 1px solid var(--line);
   font-size: var(--fs-1);
   line-height: 1.5;
@@ -800,4 +802,144 @@ body {
   padding: 6px 9px;
   background: var(--panel-2);
   border-left: 2px solid var(--line);
+}
+
+/* ── 出典・ライセンスのダイアログ ──────────────────────────
+   ⚠️ 出典表示は義務（ODbL の share-alike、OCCTO の出典明記）。
+   隅に畳まず、地図をどかして読ませる。 */
+.attrib-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  /* ⚠️ 下線は薄くしない。ここは「押せる」ことが分からないと
+     出典に辿り着けない —— 表示義務のある内容への唯一の入口 */
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 120ms linear;
+}
+.attrib-link:hover { color: var(--text); }
+
+.lic-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 6, 9, 0.72);
+  backdrop-filter: blur(3px);
+  animation: lic-fade 140ms linear;
+}
+@keyframes lic-fade { from { opacity: 0 } to { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .lic-backdrop { animation: none } }
+
+.lic {
+  width: min(680px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 18px 20px 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.lic::-webkit-scrollbar { width: 8px; }
+.lic::-webkit-scrollbar-thumb { background: var(--line); }
+
+.lic-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.lic-head h2 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-4);
+  font-weight: 500;
+  color: var(--text);
+}
+.lic-head button {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin: -4px -4px -4px 0;
+  background: none; border: none; border-radius: 3px;
+  color: var(--text-dim); font-size: 19px; line-height: 1; cursor: pointer;
+}
+.lic-head button:hover { color: var(--text); background: var(--panel-2); }
+
+.lic-lead {
+  margin: 0 0 8px;
+  font-size: var(--fs-2);
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+/* ⚠️ ODbL の継承は「注意書き」ではなく条件そのもの。目立たせる */
+.lic-warn {
+  padding: 8px 10px;
+  background: rgba(255, 184, 77, 0.07);
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+}
+.lic-warn strong { color: var(--warn); }
+
+.lic-list { list-style: none; margin: 14px 0 0; padding: 0; }
+.lic-list > li {
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.lic-name {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: var(--fs-3);
+}
+.lic-name span:first-child { color: var(--text); }
+/* 未確認は隠さない。⚠️ ATTRIBUTION.md の規則 4 では公開を止める条件 */
+.lic-tag {
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 184, 77, 0.45);
+  border-radius: 2px;
+  color: var(--warn);
+}
+.lic-provider {
+  margin: 2px 0 6px;
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
+.lic-list dl { margin: 0; }
+.lic-list dl > div {
+  display: flex; gap: 10px;
+  padding: 2px 0;
+}
+.lic-list dt {
+  flex: 0 0 72px;
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
+.lic-list dd {
+  margin: 0; flex: 1;
+  font-size: var(--fs-2);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.lic-url { font-family: var(--mono); font-size: var(--fs-1); word-break: break-all; }
+.lic-url a {
+  color: var(--text-dim);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 2px;
+}
+.lic-url a:hover { color: var(--accent); }
+.lic-foot {
+  margin: 12px 0 0;
+  font-size: var(--fs-1);
+  color: var(--muted);
 }

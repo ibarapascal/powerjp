@@ -18,6 +18,8 @@ import {
   startFlowAnimation, stopFlowAnimation, holdFlowAnimation,
 } from './flowGlow'
 import type { PickedFeature } from './types'
+import { dataBase, fileStamps } from './manifest'
+import type { Manifest } from './manifest'
 
 type Props = {
   token: string
@@ -28,6 +30,12 @@ type Props = {
   onCounts: (c: Record<string, number>) => void
   /** 表示するコマ（`flow_stamps.json` の添字）。潮流の向きも色もこれで決まる */
   slotIdx: number
+  /** 時間軸のコマ数。成果物の世代ずれ検出に使う */
+  slotLen: number
+  /** どのファイルが dynamic 層かの判定に使う */
+  manifest: Manifest | null
+  /** dynamic が更新されるたびに増える。増えたら該当 source を取り直す */
+  dataVersion: number
 }
 
 // 初期表示は首都圏。全国からだと線が細く潮流も判別できないので、
@@ -36,7 +44,8 @@ const INITIAL_CENTER: [number, number] = [139.75, 35.75]   // 東京
 const INITIAL_ZOOM = 8.2
 
 export function MapView({
-  token, enabled, onPick, onLoadingChange, onCounts, slotIdx,
+  token, enabled, onPick, onLoadingChange, onCounts, slotIdx, slotLen,
+  manifest, dataVersion,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
@@ -47,6 +56,8 @@ export function MapView({
   /** 既に fetch 済みの layer id。再取得を避けるため消さない */
   const loaded = useRef<Set<string>>(new Set())
   const pending = useRef<Set<string>>(new Set())
+  /** ファイル名 → 取得した時点の mtime。これと manifest を比べて差分だけ取り直す */
+  const fetchedAt = useRef<Record<string, number>>({})
 
   // ── 初期化（1 回だけ）──
   useEffect(() => {
@@ -62,8 +73,9 @@ export function MapView({
       attributionControl: false,
       // WebGL の描画バッファを保持する。無効（既定）だとスクリーンショット系の
       // ツールで canvas が真っ黒に写り、「地図が出ていない」と誤診する。
-      // 目視・自動検証のコストの方が、わずかな描画オーバーヘッドより大きい。
-      preserveDrawingBuffer: true,
+      // ⚠️ **dev だけ**。本番では要らないうえ、GPU メモリを余分に使う
+      //    （検証のための設定であって、利用者のための設定ではない）。
+      preserveDrawingBuffer: import.meta.env.DEV,
     })
     // ⛔ NavigationControl は置かない（ユーザー要求 2026-08-07）。
     //    ズームはホイールとピンチで足りる。地図の上に物を足さない。
@@ -105,7 +117,8 @@ export function MapView({
         if (!m.queryRenderedFeatures(e.point, { layers: ids }).length) onPick(null)
       })
       ready.current = true
-      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts, slot.current)
+      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
+                 slot.current, slotLen, fileStamps(manifest), fetchedAt)
     })
     map.current = m
     return () => {
@@ -123,8 +136,45 @@ export function MapView({
   useEffect(() => {
     const m = map.current
     if (!m || !ready.current) return
-    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts, slotIdx)
-  }, [enabled, onLoadingChange, onPick, onCounts, slotIdx])
+    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
+               slotIdx, slotLen, fileStamps(manifest), fetchedAt)
+  }, [enabled, onLoadingChange, onPick, onCounts, slotIdx, slotLen, manifest])
+
+  // ── 配信物の更新に追従（30 分ごとの再配信・static の差し替え）──
+  //
+  // ⚠️ ここは `setData` を使ってよい。避けるべきなのは**スライダーを引くたび**の
+  //    再パース（LESSONS #40）であって、更新のたびなら問題にならない。
+  //    ⛔ source を作り直さないこと —— レイヤーが参照を失う。
+  // ⚠️ 層で分けず**ファイルごとの mtime** で判定する。static も変わりうる
+  //    （AJG の新版、配信を保留した層の変更など）。
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready.current || dataVersion === 0) return
+    const stamps = fileStamps(manifest)
+    let alive = true
+    ;(async () => {
+      const files = [...new Set(
+        LAYERS.filter((d) => loaded.current.has(d.id)).map((d) => d.file),
+      )].filter((f) => stamps[f] && stamps[f] !== fetchedAt.current[f])
+      for (const file of files) {
+        try {
+          const res = await fetch(`${dataBase()}/${file}`, { cache: 'no-cache' })
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+          const data = await res.json()
+          if (!alive) return
+          const src = m.getSource(file) as mapboxgl.GeoJSONSource | undefined
+          if (src?.setData) {
+            src.setData(data)
+            fetchedAt.current[file] = stamps[file]
+            onCounts(tallyCounts(file, data))
+          }
+        } catch (err) {
+          console.error(`[powerjp] ${file} の再取得に失敗:`, err)
+        }
+      }
+    })()
+    return () => { alive = false }
+  }, [dataVersion, manifest, onCounts])
 
   // ── コマの移動に追従 ──
   //
@@ -202,6 +252,28 @@ function tallyCounts(file: string, data: unknown): Record<string, number> {
   return out
 }
 
+/**
+ * `slots_mw` の長さが時間軸と食い違っていないか見る。
+ * ⛔ 黙って通さない —— これは「描画が壊れる」のではなく
+ *    「**正しい見た目で間違った値**」になる種類の不整合。
+ */
+function warnIfSlotLenMismatch(file: string, data: unknown, expected: number) {
+  if (!expected) return
+  const f = (data as { features?: { properties?: Record<string, unknown> }[] })
+    .features?.[0]
+  const raw = f?.properties?.slots_mw
+  if (raw === undefined) return
+  const len = Array.isArray(raw)
+    ? raw.length
+    : (() => { try { return JSON.parse(String(raw)).length } catch { return -1 } })()
+  if (len > 0 && len !== expected) {
+    console.error(
+      `[powerjp] ${file} の slots_mw が ${len} コマ、時間軸は ${expected} コマ。`
+      + '配信中の世代がずれている可能性がある（値が静かにずれる）。再読込を。',
+    )
+  }
+}
+
 async function syncLayers(
   m: mapboxgl.Map,
   enabled: Set<string>,
@@ -211,6 +283,10 @@ async function syncLayers(
   onPick: (f: PickedFeature | null) => void,
   onCounts: (c: Record<string, number>) => void,
   slotIdx: number,
+  slotLen: number,
+  /** 取得時点の mtime を控えるため。更新判定の基準になる */
+  stamps: Record<string, number>,
+  fetchedAt: React.MutableRefObject<Record<string, number>>,
 ) {
   for (const def of LAYERS) {
     const want = enabled.has(def.id)
@@ -225,6 +301,13 @@ async function syncLayers(
         const res = await fetch(`${base.replace(/\/$/, '')}/${def.file}`)
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         const data = await res.json()
+        // ⚠️ **成果物の世代ずれを検出する。**
+        //    publish は 30 分ごとに窓を 1 コマずらすので、
+        //    `flow_lines`（新）と `flow_stamps`（旧）が混ざると
+        //    下標が全部ずれ、**画面は正常なまま値だけ間違う**。
+        //    R2 へのアップロード中に読まれると起こりうる（原子性は
+        //    manifest 前提だが、前端はまだ manifest を見ていない）。
+        warnIfSlotLenMismatch(def.file, data, slotLen)
         // ★ source は **file 単位**。同じ GeoJSON を複数レイヤーで
         //   filter 違いで使い分ける（送電線を 3 レイヤーに分けている）。
         //   layer ごとに source を作ると同じデータを何度も持つことになる。
@@ -233,6 +316,8 @@ async function syncLayers(
         // ★ 件数は**読み込んだ実データから数える**。宣言に焼き込むと
         //   上流が更新されたとき黙って古い数字を出し続ける。
         onCounts(tallyCounts(def.file, data))
+        // ★ 取得時点の mtime を控える。更新判定の基準になる
+        fetchedAt.current[def.file] = stamps[def.file] ?? 0
         if (!m.getLayer(def.id)) {
           m.addLayer({
             id: def.id,

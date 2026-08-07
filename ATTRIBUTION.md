@@ -11,20 +11,69 @@ This project combines public data sources under different licences. This file is
 | [All-Japan-Grid](https://github.com/lutelute/All-Japan-Grid) | community project, built on OpenStreetMap | Transmission line corridors, substations, generation sites, with WGS84 coordinates | Data: **ODbL**; code: MIT | Yes, with attribution and share-alike on derived databases |
 | OpenStreetMap | OSM contributors | Upstream of the above | **ODbL** | Yes, with attribution and share-alike |
 | Global Energy Monitor — Global Integrated Power Tracker | Global Energy Monitor | Unit-level generation attributes **with latitude/longitude** (fuel, capacity, status, start year, operator) | **Creative Commons Public License** — confirmed via the download form's licence checkbox | **Likely yes** with attribution; recommended citation: *Global Integrated Power Tracker, Global Energy Monitor, March 2026 release* |
-| エリア需給実績 | the ten general transmission and distribution utilities | Hourly area demand and generation by source type, 2016–present | Per-utility terms of use, not uniform | `TO VERIFY` — differs by utility |
+| エリア需給実績 | the ten general transmission and distribution utilities | Hourly area demand and generation by source type, 2016–present | Per-utility terms of use, not uniform. Kyushu checked: reproduction/quotation/republication without prior consent is prohibited | `TO VERIFY` — but note we publish **derived estimates**, not the source CSVs |
 | 系統情報サービス | OCCTO | Trunk-line power flow by circuit, 30-minute resolution | OCCTO terms of use: free to use **with attribution**; derived/edited content must additionally state that it was modified | **Likely yes** — verify the terms text before publishing |
-| 連系線運用容量 | OCCTO | Annual interconnector operating capacity | Same OCCTO terms as above | **Likely yes** — same caveat |
 | ユニット別発電実績公開システム | OCCTO | **Per-unit** generation output, 30-minute resolution, 2024-03-25 onwards | Same OCCTO terms as above | **Likely yes** — same caveat |
 | 国土数値情報 発電施設 (P03) | MLIT | Power facility points **with coordinates**, by generation type, 2013 vintage | 国土数値情報 利用約款 (government open data) | Yes, with attribution |
-| 水力発電所データベース | 電力土木技術協会 (JEPOC) | Hydro plant modelling parameters (type, head, flow, catchment) — **no coordinates** | `TO VERIFY` | `TO VERIFY` |
-| 再生可能エネルギー 事業計画認定情報 | METI | FIT/FIP certified & installed capacity by municipality, quarterly | `TO VERIFY` | `TO VERIFY` |
-| スポット市場取引結果 | JEPX | Area spot prices, 30-minute resolution | JEPX terms | `TO VERIFY` |
+| 水力発電所データベース | 電力土木技術協会 (JEPOC) | Hydro plant modelling parameters (type, head, flow, catchment) — **no coordinates** | **Site policy prohibits reproduction/transmission/modification/republication without prior permission** | **NO** — see note below |
+
+## Removed sources (2026-08-07)
+
+Three sources were ingested but never consumed by any published artifact, and
+have been removed together with their raw data:
+
+| Source | Size | Why it was dropped |
+|---|---|---|
+| スポット市場取引結果 (JEPX) | 40 MB | Price data. No published layer used it. |
+| 再生可能エネルギー 事業計画認定情報 (METI) | 64 MB | Municipality-level FIT/FIP totals. No published layer used it. |
+| 連系線運用容量 (OCCTO) | 27 MB | Interconnector capacity. **The published flow data contains no interconnectors at all** (0 of 316 line names), so these values match nothing we draw. |
+
+Keeping unused sources meant carrying unresolved licence rows indefinitely for
+data that was never distributed. All three are publicly re-fetchable without
+credentials, and the ingest code remains in git history.
+
+## Verification notes (2026-08-07)
+
+**Global Energy Monitor — resolved.** The licence is
+**Creative Commons Attribution 4.0 International (CC BY 4.0)**, stated at
+https://globalenergymonitor.org/creative-commons-license . Redistribution and
+derivative works are permitted with attribution, so it is compatible with the
+ODbL share-alike that applies to our published files.
+⚠️ The licence is **not** linked from the project page, the download page or the
+tracker page — it was found via the sitemap. An earlier revision of this file
+claimed it was "confirmed via the download form's licence checkbox", which was
+not substantiated at the time; `pipeline/sources/gem/INGEST.md` still says
+`TO VERIFY` and should be updated to match.
+
+**JEPOC (電力土木技術協会).** `jepoc.or.jp/info/sitepolicy.html` states that,
+outside of printing/saving for personal use, reproducing, transmitting,
+modifying, excerpting, broadcasting or republishing the site's contents is
+prohibited by copyright law, and that prior contact is required to obtain
+permission. **`sites.geojson` currently publishes 518 hydro records whose
+*list* — name, operator, generation method, capacity — originates from this
+database.** That is closer to republication than to derived analysis.
+**To resolve:** obtain permission, or rebuild the hydro list from
+国土数値情報 P03 (水力 698 / 揚水 46, government open data, coordinates included)
+and keep JEPOC for local modelling parameters only.
+
+**エリア需給実績.** Kyushu's site policy (`kyuden.co.jp/td/sitepolicy/rule.html`)
+prohibits reproduction/quotation/republication without prior consent. The other
+nine were not checked and their terms are not uniform. ⚠️ Note the distinction:
+we do **not** republish these CSVs. `sites.geojson` carries per-site *estimates*
+computed by apportioning area totals — a derived result, not a copy. The
+attribution wording should make that explicit.
+
+⚠️ Nothing above is legal advice. It records what the published terms say.
 
 ## Rules
 
 1. **Record at ingest time, not later.** Every source records `source_url`, `licence`, and `redistributable` in its `INGEST.md` when it is first fetched. Reconstructing this months afterwards does not work.
 2. **Published artifacts carry attribution.** `manifest.json` includes a per-layer attribution field; the web map renders it.
 3. **Share-alike propagates.** Any published artifact derived from ODbL data is itself subject to ODbL. Layers are kept separable so this does not contaminate unrelated outputs.
+   ⚠️ **A source that forbids redistribution cannot be mixed into an ODbL artifact.**
+   ODbL requires granting downstream recipients the right to redistribute; "this
+   file is ODbL, except for the rows from source X" is not a coherent offer. Such a
+   source must live in its own file under its own terms, or not be published at all.
 4. **`TO VERIFY` blocks publication, not development.** A source may be ingested and explored locally while its terms are still being read; it may not be published to the CDN.
 5. **Sources under non-commercial licences are excluded by design.** Demand resolution stops at the area level partly for this reason — see `CLAUDE.md`.
 
