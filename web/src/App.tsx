@@ -9,6 +9,8 @@ import { MapView } from './MapView'
 import { Sidebar } from './Sidebar'
 import { FeaturePanel } from './FeaturePanel'
 import { TimeSlider } from './TimeSlider'
+import { SlotChart } from './SlotChart'
+import { parseSlots } from './slotSeries'
 import { LAYERS } from './layers'
 import type { PickedFeature } from './types'
 
@@ -46,6 +48,24 @@ export default function App() {
       })
       .catch((err) => console.error('[powerjp] flow_stamps.json の読込に失敗:', err))
   }, [])
+
+  // ★ 選んだ要素の時系列。潮流なら潮流、機組なら出力。
+  //   ⚠️ 変電所のように時系列を持たない要素では出さない
+  const chart = useMemo(() => {
+    if (!picked) return null
+    const series = parseSlots(picked.props.slots_mw)
+    if (!series) return null
+    // 潮流は from→to の基準方向つき（符号あり）、機組は出力（符号なし）
+    const isFlow = Boolean(picked.props.from && picked.props.to)
+    const name = String(picked.props.line ?? picked.props.name ?? '')
+    return (
+      <SlotChart
+        series={series}
+        index={slotIdx}
+        label={`${name}　${isFlow ? '潮流' : '出力'}`}
+      />
+    )
+  }, [picked, slotIdx])
 
   const mergeCounts = useCallback((c: Record<string, number>) => {
     setCounts((prev) => ({ ...prev, ...c }))
@@ -100,6 +120,13 @@ export default function App() {
     <div className="app">
       <Sidebar enabled={enabled} loading={loading} counts={counts}
                onToggle={toggle} onToggleMany={toggleMany} />
+      {/* ★ ドロワーは `.app` 直下に置く。`.map-wrap` の中だと
+          left:0 が「地図の左端」＝サイドバーの右隣になってしまう。
+          サイドバーに**重ねる**のが要求（2026-08-07）。 */}
+      {picked && (
+        <FeaturePanel picked={picked} slotIdx={slotIdx} stamps={stamps}
+                      onClose={() => setPicked(null)} />
+      )}
       <main className="map-wrap">
         <MapView
           token={token}
@@ -109,13 +136,14 @@ export default function App() {
           onCounts={mergeCounts}
           slotIdx={slotIdx}
         />
-        {picked && (
-          <FeaturePanel picked={picked} slotIdx={slotIdx} stamps={stamps}
-                        onClose={() => setPicked(null)} />
-        )}
         {enabled.has('flow_lines') && slotIdx >= 0 && (
-          <TimeSlider stamps={stamps} index={slotIdx}
-                      unitLastIdx={unitLastIdx} onChange={setSlotIdx} />
+          <TimeSlider
+            stamps={stamps}
+            index={slotIdx}
+            unitLastIdx={unitLastIdx}
+            onChange={setSlotIdx}
+            chart={chart}
+          />
         )}
       </main>
     </div>

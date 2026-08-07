@@ -1,25 +1,8 @@
 /** 地図上の要素をクリックしたときの情報パネル。表示項目は layers.ts の popupFields で決まる。 */
+import { useEffect } from 'react'
 import type { LayerDef } from './layers'
 import type { PickedFeature } from './types'
-
-/**
- * ⚠️ **Mapbox は feature の配列プロパティを JSON 文字列にして返す。**
- *
- * 実測（2026-08-02）：GeoJSON に `slots_mw: [10,-20,null,30]` を入れても
- * `queryRenderedFeatures()` で取れるのは `"[10,-20,null,30]"`（typeof string）。
- * **式（`['at', i, ['get','slots_mw']]`）の側では配列のまま扱えるので、
- * 描画は正しく動く。JS で読むときだけ parse が要る。**
- */
-function asArray(v: unknown): (number | null)[] | null {
-  if (Array.isArray(v)) return v as (number | null)[]
-  if (typeof v !== 'string') return null
-  try {
-    const p = JSON.parse(v)
-    return Array.isArray(p) ? p : null
-  } catch {
-    return null
-  }
-}
+import { parseSlots } from './slotSeries'
 
 type Props = {
   picked: PickedFeature
@@ -30,13 +13,21 @@ type Props = {
 }
 
 export function FeaturePanel({ picked, onClose, slotIdx = -1, stamps = [] }: Props) {
+  // ⛔ 地図の上に覆いかぶさるので、閉じ方を 1 つに限定しない。
+  //    × ボタンのほかに Esc でも閉じる
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
   const { layer, props } = picked
   const fields: NonNullable<LayerDef['popupFields']> =
     layer.popupFields ?? Object.keys(props).map((k) => ({ key: k, label: k }))
   const quality = String(props.data_quality ?? '')
 
   // そのコマの実測値。地図（流光の向き・扇形の角度）と必ず一致させる
-  const slots = asArray(props.slots_mw)
+  const slots = parseSlots(props.slots_mw)
   const mw = slots && slotIdx >= 0 ? slots[slotIdx] ?? null : null
   const cap = Number(props.capacity_mw ?? 0)
   const util = mw !== null && cap > 0 ? Math.abs(mw) / cap : null
@@ -46,7 +37,7 @@ export function FeaturePanel({ picked, onClose, slotIdx = -1, stamps = [] }: Pro
   const isFlow = Boolean(frm && to)
 
   return (
-    <div className="panel">
+    <aside className="drawer" role="dialog" aria-label={layer.label}>
       <div className="panel-head">
         <span className="tag">{layer.label}</span>
         <button onClick={onClose} aria-label="閉じる">×</button>
@@ -108,6 +99,6 @@ export function FeaturePanel({ picked, onClose, slotIdx = -1, stamps = [] }: Pro
           )
         })}
       </dl>
-    </div>
+    </aside>
   )
 }

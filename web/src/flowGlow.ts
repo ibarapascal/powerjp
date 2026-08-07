@@ -201,7 +201,30 @@ export const utilAt = (i: number): unknown[] => [
 //    再生成が追いつかずカクつき始める。
 const CYCLE_MS = 700
 
-type WithRaf = mapboxgl.Map & { __flowRaf?: number | null }
+type WithRaf = mapboxgl.Map & {
+  __flowRaf?: number | null
+  /** この時刻までは位相を進めない（スライダー操作中） */
+  __flowHoldUntil?: number
+  /** 停止を始めた時刻。再開時に skew へ足す */
+  __flowHoldFrom?: number | null
+  /** 停止していた合計時間。位相はこれを差し引いた時刻から出す */
+  __flowSkew?: number
+}
+
+/**
+ * 流光を一時停止する。**スライダーを操作している間は光を流さない。**
+ *
+ * コマを動かすと線の色（負荷率）と向き（符号）が同時に変わる。そこに
+ * 光の流れが重なると、色の変化なのか光が動いたのか区別できず、
+ * 「何が変わったか」が読めない。操作中は色だけを変える。
+ *
+ * 呼ぶたびに期限が延びるので、ドラッグ中は止まったまま、
+ * 手が止まって `ms` 経ったら自然に再開する（ボタンを離したかは見ない
+ * —— 押したまま止めている間も「読んでいる」ので、そこで流れ出してよい）。
+ */
+export function holdFlowAnimation(m: mapboxgl.Map, ms = 300) {
+  (m as WithRaf).__flowHoldUntil = performance.now() + ms
+}
 
 export function startFlowAnimation(m: mapboxgl.Map) {
   const mm = m as WithRaf
@@ -212,9 +235,23 @@ export function startFlowAnimation(m: mapboxgl.Map) {
       mm.__flowRaf = null
       return
     }
+    // ── 停止中は位相を進めない ──
+    const now = performance.now()
+    if (now < (mm.__flowHoldUntil ?? 0)) {
+      if (mm.__flowHoldFrom == null) mm.__flowHoldFrom = now
+      mm.__flowRaf = requestAnimationFrame(tick)
+      return
+    }
+    // ⚠️ 再開時、止まっていた時間を差し引く。差し引かないと位相が
+    //    実時間ぶん飛んで、光が瞬間移動したように見える。
+    if (mm.__flowHoldFrom != null) {
+      mm.__flowSkew = (mm.__flowSkew ?? 0) + (now - mm.__flowHoldFrom)
+      mm.__flowHoldFrom = null
+    }
     // ⚠️ 毎フレーム setPaintProperty すると（60fps）dash テクスチャの
     //    再生成が間に合わず明滅する。フレーム番号が変わった時だけ書く。
-    const idx = Math.floor(((performance.now() % CYCLE_MS) / CYCLE_MS) * FRAMES)
+    const t = now - (mm.__flowSkew ?? 0)
+    const idx = Math.floor(((t % CYCLE_MS) / CYCLE_MS) * FRAMES)
     if (idx !== lastIdx) {
       lastIdx = idx
       try {

@@ -21,7 +21,7 @@
  * 同じ容量でも circle レイヤーの点より小さく見える。
  * 換算は `layers.ts` の capIconSize が DRAW_DIAMETER を使って行う。
  */
-import { slotMissingAt, slotNumAt } from './slots'
+// ⛔ `slots.ts`（配列アクセス）は**使わない**。理由は下の iconId / pieIconExpr。
 
 export const ICON_PX = 64
 /** 利用率の段階数（0〜100% を CF_STEPS 段に量子化） */
@@ -42,9 +42,16 @@ export const FUEL_COLORS: Record<string, string> = {
   other: '#9aa5b1',
 }
 
-/** アイコン ID。データ側の値からも同じ規則で組み立てる（MapView の式を参照） */
+/**
+ * 段階を表す 1 文字。publish 側の `FAN_CHARS` と**同じ並び**にすること。
+ * 0 段 = 'A' … 20 段 = 'U'、欠測 = '-'。
+ */
+export const FAN_CHARS = 'ABCDEFGHIJKLMNOPQRSTU'
+export const FAN_MISSING = '-'
+
+/** アイコン ID。⚠️ publish の `fsteps` が返す文字をそのまま末尾に使う */
 export function iconId(fuel: string, step: number): string {
-  return `pie-${fuel}-${step}`
+  return `pie-${fuel}-${FAN_CHARS[step]}`
 }
 
 /**
@@ -58,39 +65,39 @@ export function iconId(fuel: string, step: number): string {
  *    画像を指してアイコンが**全部消える**。
  */
 export function pieIconExpr(i: number): unknown[] {
-  // 出力（MW）。潮流と違って符号は無いが、欠測（null）はある。
-  // ⛔ `['at', i, ['get','slots_mw']]` と書き直さないこと —— 理由は `slots.ts`。
-  //    欠測は 0 に倒すが、**0 の扇形（＝停止中）と混ざる**ので、
-  //    欠測コマの機組は `plantsFilter()` で描画そのものから外す。
-  const mw = slotNumAt(i)
-  const load = ['/', mw, ['max', ['coalesce', ['get', 'capacity_mw'], 0], 1]]
   return [
     'concat',
     'pie-',
-    ['match', ['coalesce', ['get', 'fuel'], ''],
-      'nuclear', 'nuclear', 'coal', 'coal', 'gas', 'gas',
-      'oil', 'oil', 'hydro', 'hydro', 'geothermal', 'geothermal',
-      'other_thermal', 'other_thermal',
-      'other'],
+    FUEL_EXPR,
     '-',
-    // 0〜1 に収めてから CF_STEPS 段に量子化。容量超過（>1）は満扇へ丸める
-    ['to-string', ['round', ['*', ['min', load, 1], CF_STEPS]]],
+    // ★ publish が焼いた 1 文字を取り出すだけ。計算しない
+    ['slice', ['get', 'fsteps'], i, i + 1],
   ]
 }
 
-/**
- * コマ i で**描く機組**の条件。欠測コマの機組は描かない。
- *
- * ⚠️ 欠測を 0 として描くと「停止中（出力 0）」と見分けがつかなくなる。
- *    `occto_unit` は T+1 公表なので当日ぶんは丸一日欠測になり、
- *    黙って 0 で描くと**全機停止しているように見える**。
- *    円環ごと消えるのは情報の欠落だが、嘘をつくよりはよい。
- */
-export function plantsFilter(i: number): unknown[] {
-  return ['!', slotMissingAt(i)]
-}
+/** 電源種 → アイコン名の一部。式を 2 か所に書かないため切り出す */
+const FUEL_EXPR: unknown[] = [
+  'match', ['coalesce', ['get', 'fuel'], ''],
+  'nuclear', 'nuclear', 'coal', 'coal', 'gas', 'gas',
+  'oil', 'oil', 'hydro', 'hydro', 'geothermal', 'geothermal',
+  'other_thermal', 'other_thermal',
+  'other',
+]
 
-function drawPie(color: string, cf: number): ImageData {
+/* ⚠️ 以前は欠測コマの機組を filter で**描画から外して**いたが、
+   2026-08-07 の要求で「欠測でも円環は出す」に変更した。
+   区別は破線（`drawPie` の cf === null）が担う。
+   ⛔ 欠測を隠す filter を復活させないこと。 */
+
+/**
+ * @param cf 0〜1 の利用率。**null は「データが無い」**（要求 2026-08-07：
+ *   欠測でも円環は出す）。
+ *
+ * ⚠️ 欠測を「扇形ゼロ」と同じ絵にしてはいけない —— 止まっている機組と
+ *    区別がつかなくなる。欠測は**破線の円環**にして、実線＝データあり、
+ *    破線＝データ無し、と一目で分かるようにする。
+ */
+function drawPie(color: string, cf: number | null): ImageData {
   const c = document.createElement('canvas')
   c.width = c.height = ICON_PX
   const ctx = c.getContext('2d')!
@@ -104,10 +111,18 @@ function drawPie(color: string, cf: number): ImageData {
   ctx.fill()
   ctx.lineWidth = 3
   ctx.strokeStyle = color
+  if (cf === null) {
+    // データ無し：**破線だけ**で区別する。⛔ 実線に戻さないこと（上の注記）
+    // ⛔ 透明度は下げない（要求 2026-08-07）—— 薄くすると「弱く発電している」
+    //    ように読めてしまう。データの有無と量は別の軸。
+    ctx.setLineDash([5, 4])
+    ctx.lineWidth = 2.5
+  }
   ctx.stroke()
+  ctx.setLineDash([])
 
-  // ② 内側の扇形＝当日の設備利用率。12 時方向から時計回り
-  if (cf > 0) {
+  // ② 内側の扇形＝その時刻の出力÷容量。12 時方向から時計回り
+  if (cf !== null && cf > 0) {
     ctx.beginPath()
     ctx.moveTo(cx, cx)
     ctx.arc(cx, cx, r - 2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cf)
@@ -129,5 +144,8 @@ export function registerPieIcons(map: {
       if (map.hasImage(id)) continue
       map.addImage(id, drawPie(color, i / CF_STEPS), { pixelRatio: 2 })
     }
+    // 欠測用。`fsteps` が '-' を返すコマがこれを指す
+    const miss = `pie-${fuel}-${FAN_MISSING}`
+    if (!map.hasImage(miss)) map.addImage(miss, drawPie(color, null), { pixelRatio: 2 })
   }
 }

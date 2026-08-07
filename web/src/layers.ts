@@ -25,6 +25,7 @@
  */
 
 import { utilGradientCss } from './flowGlow'
+import { pieIconExpr } from './pieIcons'
 
 export type LegendItem = { color: string; label: string; dashed?: boolean }
 
@@ -501,21 +502,12 @@ export const LAYERS: LayerDef[] = [
     layout: {
       // データ側の fuel / cf からアイコン ID を組み立てる。
       // ⚠️ pieIcons.ts の iconId() と同じ規則にすること。
-      'icon-image': [
-        'concat',
-        'pie-',
-        ['match', ['coalesce', ['get', 'fuel'], ''],
-          'nuclear', 'nuclear', 'coal', 'coal', 'gas', 'gas',
-          'oil', 'oil', 'hydro', 'hydro', 'geothermal', 'geothermal',
-          'other_thermal', 'other_thermal',
-          'other'],
-        '-',
-        // ⚠️ 扇形は**その時刻の出力 ÷ 容量**（`load`）。
-        //    当日平均（`cf`）ではない —— 昼だけ全開の機組が 40% に見えたり、
-        //    既に停止した機組が動いているように見えてしまう。
-        //    実測：原町は実時刻 94% に対し当日平均 48%、船町は 0% に対し 39%。
-        ['to-string', ['round', ['*', ['coalesce', ['get', 'load'], 0], 20]]],
-      ],
+      // ★ アイコン名は `pieIconExpr()` が唯一の出処。ここに式を書き写さない。
+      //   ⚠️ 以前ここだけ数字の段（pie-gas-14）を組み立てていたが、
+      //   `pieIcons.ts` 側が文字の段（pie-gas-O）へ移ったとき**ここが取り残され**、
+      //   レイヤー追加直後だけ存在しないアイコンを指す状態になった。
+      //   コマは MapView が slotIdx で上書きするので、ここは 0 コマ目でよい。
+      'icon-image': pieIconExpr(0),
       // ⚠️ icon-size は**元画像 64px に対する倍率**。直径 D px にしたいなら D/64。
       //   大きさは設備容量の**対数**（面積比例だと最大級が画面を埋める）。
       'icon-size': capIconSize('capacity_mw'),
@@ -529,8 +521,11 @@ export const LAYERS: LayerDef[] = [
       { color: '#ffd54a', label: '火力（ガス）' },
       { color: '#f57c1f', label: '火力（石油）' },
       { color: '#d13b30', label: '火力（石炭）' },
-      { color: '#7e8a97', label: 'その他火力（副生ガス等・内訳不明）' },
       { color: '#35c4d4', label: '水力・揚水' },
+      // ⚠️ 「その他」は**必ず最後**に置く（ユーザー要求 2026-08-07）。
+      //    分類の並びの途中に「その他」が挟まると、以降の項目が
+      //    その下位分類のように読める。内訳は情報パネルに出す。
+      { color: '#7e8a97', label: 'その他' },
     ],
     popupFields: [
       { key: 'name', label: '発電所' },

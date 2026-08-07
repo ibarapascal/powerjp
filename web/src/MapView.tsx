@@ -12,10 +12,10 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import { LAYERS } from './layers'
-import { registerPieIcons, pieIconExpr, plantsFilter } from './pieIcons'
+import { registerPieIcons, pieIconExpr } from './pieIcons'
 import {
   GLOW_TIERS, glowFilter, utilAt, UTIL_RAMP,
-  startFlowAnimation, stopFlowAnimation,
+  startFlowAnimation, stopFlowAnimation, holdFlowAnimation,
 } from './flowGlow'
 import type { PickedFeature } from './types'
 
@@ -95,6 +95,15 @@ export function MapView({
       } catch (err) {
         console.warn('[powerjp] 底図の色調整をスキップ:', err)
       }
+      // ★ 何も無いところをクリックしたら選択を解除する（要求 2026-08-07）。
+      //   ⚠️ レイヤーごとの click ハンドラとは別に、地図全体でも受ける。
+      //   当たり判定を自分で取り直し、**どのレイヤーにも当たらなかったときだけ**
+      //   閉じる —— そうしないと要素を選んだ直後に自分で解除してしまう。
+      m.on('click', (e) => {
+        const ids = LAYERS.map((d) => d.id).filter((id) => m.getLayer(id))
+        if (!ids.length) return
+        if (!m.queryRenderedFeatures(e.point, { layers: ids }).length) onPick(null)
+      })
       ready.current = true
       syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts, slot.current)
     })
@@ -126,6 +135,9 @@ export function MapView({
     const m = map.current
     if (!m || !ready.current) return
     if (slotIdx < 0) return
+    // ★ コマを動かしている間は光を流さない。色と向きだけを変える。
+    //   手が止まって 300ms で自然に再開する（`holdFlowAnimation` 参照）
+    holdFlowAnimation(m, 300)
     for (const t of GLOW_TIERS) {
       if (!m.getLayer(t.id)) continue
       try {
@@ -138,9 +150,9 @@ export function MapView({
     // 機組の扇形も同じコマへ。潮流と別の時刻を映すと嘘になる
     if (m.getLayer('plants')) {
       try {
+        // ⚠️ 欠測コマも**描く**（円環だけ・破線）。隠すと「発電所が無い」に
+        //    見えてしまう。区別は `pieIcons` の破線が担う
         m.setLayoutProperty('plants', 'icon-image', pieIconExpr(slotIdx) as never)
-        // ★ 欠測コマの機組は描かない。0 で描くと「停止中」と区別できない
-        m.setFilter('plants', plantsFilter(slotIdx) as never)
       } catch (err) {
         console.error('[powerjp] 扇形のコマ更新に失敗:', err)
       }
@@ -235,7 +247,6 @@ async function syncLayers(
           // ここで上書きしないと、初回だけ最新コマ固定になる
           if (def.id === 'plants' && slotIdx >= 0) {
             m.setLayoutProperty(def.id, 'icon-image', pieIconExpr(slotIdx) as never)
-            m.setFilter(def.id, plantsFilter(slotIdx) as never)
           }
           m.on('click', def.id, (e) => {
             const f = e.features?.[0]

@@ -49,6 +49,8 @@ scratch/
 
 # ── 前端 ──
 web/node_modules/
+# tsc --noEmit のインクリメンタルキャッシュ。生成物なので追跡しない
+web/tsconfig.tsbuildinfo
 web/dist/
 web/.env
 # public/data は storage/publish への symlink（データ本体は storage/ 側で無視済み）

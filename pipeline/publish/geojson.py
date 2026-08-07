@@ -271,7 +271,11 @@ def _kv(v) -> float:
 # 前端に渡す時系列の長さ（時間）。48 コマ/日なので 72h = 144 コマ。
 # ⚠️ 「当日」で切ってはいけない —— 日付が変わった直後は数コマしか無い。
 #    暦日ではなく**直近 N 時間**で切る。
-FLOW_WINDOW_H = 72
+# 時間軸の長さ（時間）。⚠️ ここを変えたら前端の目盛りは**自動で追従する**
+# （`TimeSlider` が stamps の長さからラベル間隔を決める）。
+# 2026-08-07：72 → 120。機組の欠測（T+1 公表なので 15.5〜39.5 時間）が
+# 窓に占める割合を下げるため。代価は dynamic 層 +516KB。
+FLOW_WINDOW_H = 120
 SLOTS_PER_DAY = 48
 
 
@@ -443,7 +447,13 @@ def build_flow() -> tuple[int, list[str]]:
     dropped_km = 0.0
     for r in json.loads(p.read_text(encoding="utf-8")):
         segs = r.get("segments") or []
-        slots = slot_map.get((r["area"], r["line"]))
+        # ⚠️ **None を出さない。長さぶんの null 配列にする**（LESSONS #43）
+        #    実測が 1 コマも無い線が 684 区間中 12 ある。そこを None のまま
+        #    出すと、前端の式 `['array', ['get','slots_mw']]` が
+        #    「null は配列ではない」で評価に失敗し、**要素ごと・タイルごとに**
+        #    warning を出す（地図を動かすと際限なく増える）。
+        #    空の配列でも `at` が範囲外になるので、長さを揃えるのが正解。
+        slots = slot_map.get((r["area"], r["line"])) or [None] * len(stamps)
         # 代表値は**最後に値のあるコマ**（＝最新断面）。凡例や初期表示用
         latest = next((v for v in reversed(slots or []) if v is not None), None)
         frm, to = r["from"], r["to"]
@@ -616,6 +626,40 @@ def load_unit_slots(stamps: list[str]) -> dict:
     return out
 
 
+# 扇形の段階を 1 文字にする表。0〜20 段（`pieIcons.ts` の CF_STEPS と一致）
+# ⚠️ 欠測は '-'。0 段（停止中）と混ぜないこと
+FAN_CHARS = "ABCDEFGHIJKLMNOPQRSTU"
+FAN_MISSING = "-"
+
+
+def fan_steps(slots, cap) -> str:
+    """コマごとの「出力÷容量」を 1 文字ずつに畳んだ文字列。
+
+    ## なぜ配列ではなく文字列なのか（LESSONS #43）
+
+    扇形は `icon-image` で選ぶが、これは **layout プロパティ**で、
+    worker のタイル配置時に**シリアライズ済みの属性**に対して評価される。
+    そこでは配列は JSON 文字列になっているので、式で `at` を使うと
+    毎タイル・毎要素で型アサーションに失敗して warning を出し続ける
+    （地図を動かすたびに増える）。
+
+    文字列なら serialise しても文字列のままなので、
+    `['slice', ['get','fsteps'], i, i+1]` で 1 文字取れば layout でも安全。
+
+    ⚠️ `slots_mw`（配列）は**残す** —— 情報パネルが MW を出すのに要る。
+       あちらは JS で読むので `JSON.parse` すればよい。
+    """
+    c = max(float(cap or 0), 1.0)
+    out = []
+    for v in slots or []:
+        if v is None:
+            out.append(FAN_MISSING)
+            continue
+        k = int(min(abs(float(v)) / c, 1.0) * (len(FAN_CHARS) - 1) + 0.5)
+        out.append(FAN_CHARS[max(0, min(len(FAN_CHARS) - 1, k))])
+    return "".join(out)
+
+
 def build_plants(stamps: list[str] | None = None) -> tuple[int, int]:
     """戻り値は (バイト数, **実測が入っている最後のコマ番号**)。
 
@@ -639,6 +683,9 @@ def build_plants(stamps: list[str] | None = None) -> tuple[int, int]:
             slots = r.get("slots_mw")
         else:
             n_hit += 1
+        # ⚠️ ここも None を出さない（上と同じ理由）
+        if slots is None and stamps:
+            slots = [None] * len(stamps)
         cap = r.get("capacity_mw")
         latest = _last_mw(slots)
         feats.append({
@@ -665,6 +712,9 @@ def build_plants(stamps: list[str] | None = None) -> tuple[int, int]:
                          if cap and latest is not None else None),
                 # ★ 30 分コマ。潮流と同じ時間軸（`flow_stamps.json` と一対一）
                 "slots_mw": slots,
+                # ★ 扇形用。`slots_mw` と同じ長さの**文字列**（1 コマ 1 文字）。
+                #   layout プロパティは配列を扱えないので、こちらを使う（上の注記）
+                "fsteps": fan_steps(slots, cap),
                 # GEM_operating = 現役のみ / AJG_installed_ever = 廃炉分を含む
                 "capacity_source": r.get("capacity_source"),
                 "data_quality": "measured",          # OCCTO 逐机组实测
