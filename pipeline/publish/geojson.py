@@ -303,9 +303,14 @@ def load_flow_slots() -> tuple[dict, list[str]]:
     if not files:
         return {}, []
 
-    # ---- 対象日：最新から遡って FLOW_WINDOW_H ぶん ----
+    # ---- 対象日 ----
+    # ⚠️ **窓は「直近 FLOW_WINDOW_H 時間」であって「直近 N 日」ではない**
+    #    （REQUIREMENTS T5「浮动过去 24 48 或者 72」）。
+    #    日単位で切ると窓の頭が日境界に貼り付き、時間が進んでも動かない。
+    #    例：72h のつもりが 08-04 00:00〜08-06 21:00（69.5h）になる。
+    #    なので**1 日多く**読み込んでおき、下で末尾から 144 コマだけ残す。
     days = sorted({f.name.split("_")[-2] for f in files})
-    n_days = -(-FLOW_WINDOW_H // 24)                 # 切り上げ
+    n_days = -(-FLOW_WINDOW_H // 24) + 1             # 切り上げ + 余分に 1 日
     days = days[-n_days:]
     stamps = [f"{d} {h:02d}:{m:02d}"
               for d in days for h in range(24) for m in (0, 30)]
@@ -336,6 +341,30 @@ def load_flow_slots() -> tuple[dict, list[str]]:
                     slots[j] = round(float(str(v).replace(",", "")), 1)
                 except (TypeError, ValueError):
                     pass
+
+    # ---- 末尾の「まだ来ていないコマ」を落とす ----
+    # stamps は日単位で作るので、当日ぶんの未到来コマが必ず末尾に null で残る。
+    # 描けないので残しても無意味なうえ、前端の式が null を含む配列を嫌う
+    # （LESSONS #42）。窓の途中の欠測はデータの事実なので**残す**。
+    last = max((i for s in out.values() for i, v in enumerate(s) if v is not None),
+               default=-1)
+    if 0 <= last + 1 < len(stamps):
+        log.info("末尾の未到来コマを %d 個落とした（%s 以降）",
+                 len(stamps) - last - 1, stamps[last + 1])
+        stamps = stamps[:last + 1]
+        for k in out:
+            out[k] = out[k][:last + 1]
+
+    # ---- 窓を「直近 FLOW_WINDOW_H 時間」ちょうどに切り詰める ----
+    # 末尾（最新の実測コマ）から数えて必要なぶんだけ残す。これで窓の頭が
+    # 時間の経過に合わせて滑る。⚠️ 上で 1 日多く読んでいるのはこのため。
+    want = FLOW_WINDOW_H * SLOTS_PER_DAY // 24
+    if len(stamps) > want:
+        log.info("窓を直近 %d 時間に揃えた：先頭の %d コマを落とす（%s 〜）",
+                 FLOW_WINDOW_H, len(stamps) - want, stamps[len(stamps) - want])
+        stamps = stamps[-want:]
+        for k in out:
+            out[k] = out[k][-want:]
 
     filled = sum(1 for s in out.values() for v in s if v is not None)
     n_flip = sum(1 for s in out.values()
@@ -487,15 +516,33 @@ def build_flow() -> tuple[int, list[str]]:
     log.info("区間の内訳 %s / 除外した長さ %.0f km / 幾何共有 %d 区間",
              stat, dropped_km, n_shared)
 
-    # 時刻ラベルは全 feature で共通なので、GeoJSON に埋めず別ファイルにする。
-    # 684 feature × 144 個の文字列を重複させると数 MB 無駄になる。
+    return write("flow_lines.geojson", feats), stamps
+
+
+def write_stamps(stamps: list[str], unit_last_idx: int) -> None:
+    """時刻ラベルを別ファイルに出す。
+
+    全 feature で共通なので GeoJSON には埋めない ——
+    684 feature × 139 個の文字列を重複させると数 MB 無駄になる。
+
+    ## `unit_last_idx`：機組の実測が入っている最後のコマ
+
+    ⚠️ **潮流より手前で終わる。** `occto_unit` は T+1 公表なので、
+    潮流に値があるコマでも機組は丸一日ぶん欠測になる。
+
+    ここで出すのは**事実だけ**（どこまで機組のデータがあるか）。
+    「既定でどのコマに止めるか」「欠測区間をどう描くか」は表示側の判断なので
+    前端が決める。publish が UI の既定値を決め打ちすると、
+    見せ方を変えるたびにパイプラインを回し直す羽目になる。
+    """
     (out_dir() / "flow_stamps.json").write_text(
         json.dumps({"stamps": stamps, "window_h": FLOW_WINDOW_H,
-                    "slots_per_day": SLOTS_PER_DAY}, ensure_ascii=False),
+                    "slots_per_day": SLOTS_PER_DAY,
+                    "unit_last_idx": unit_last_idx}, ensure_ascii=False),
         encoding="utf-8")
-    log.info("flow_stamps.json      %d コマ（%s 〜 %s）",
-             len(stamps), stamps[0] if stamps else "-", stamps[-1] if stamps else "-")
-    return write("flow_lines.geojson", feats), stamps
+    log.info("flow_stamps.json      %d コマ（%s 〜 %s）／機組の実測は %s まで",
+             len(stamps), stamps[0] if stamps else "-", stamps[-1] if stamps else "-",
+             stamps[unit_last_idx] if 0 <= unit_last_idx < len(stamps) else "-")
 
 
 def _last_mw(slots):
@@ -569,11 +616,16 @@ def load_unit_slots(stamps: list[str]) -> dict:
     return out
 
 
-def build_plants(stamps: list[str] | None = None) -> int:
+def build_plants(stamps: list[str] | None = None) -> tuple[int, int]:
+    """戻り値は (バイト数, **実測が入っている最後のコマ番号**)。
+
+    2 つ目は `write_stamps` の `default_idx` に使う。機組は T+1 公表なので
+    潮流より遅れる ——「潮流はあるが機組は無い」コマを既定にしないため。
+    """
     p = paths.structured("plants") / "plants.json"
     if not p.is_file():
         log.warning("%s 不存在 —— 先跑 structured_plants", p)
-        return 0
+        return 0, -1
     # ★ 潮流と**同じ時間軸**に載せる。スライダーを 1 本で共有するため
     unit = load_unit_slots(stamps) if stamps else {}
     n_hit = 0
@@ -619,9 +671,14 @@ def build_plants(stamps: list[str] | None = None) -> int:
                 "coord_source": r["coord_source"], "match_method": r["match_method"],
             },
         })
+    # 実測が入っている最後のコマ。1 機でも値があればそのコマは「ある」とみなす
+    last = max((i for f in feats
+                for i, v in enumerate(f["properties"]["slots_mw"] or [])
+                if v is not None), default=-1)
     if stamps:
-        log.info("機組の時系列を時間軸に接続: %d / %d 機組", n_hit, len(feats))
-    return write("plants.geojson", feats)
+        log.info("機組の時系列を時間軸に接続: %d / %d 機組（実測は %d コマ目まで）",
+                 n_hit, len(feats), last)
+    return write("plants.geojson", feats), last
 
 
 def build_sites() -> int:
@@ -687,7 +744,9 @@ def main() -> None:
     if args.only in ("all", "dynamic"):
         # ★ 潮流が決めた時間軸を機組にも渡す。スライダーは 1 本で両方を動かす
         b_flow, stamps = build_flow()
-        b_plant = build_plants(stamps)
+        b_plant, plant_last = build_plants(stamps)
+        # ★ 出すのは事実（機組がどこまであるか）。既定コマの判断は前端
+        write_stamps(stamps, plant_last)
         built += spec.files_for("dynamic")
 
     write_manifest(built)

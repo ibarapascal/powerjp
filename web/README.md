@@ -81,6 +81,7 @@ Douglas-Peucker もズームレベル別の間引きもしない（`CLAUDE.md` �
 | ファイル | 役割 |
 |---|---|
 | `src/layers.ts` | **レイヤー定義。拡張はここだけ** |
+| `src/slots.ts` | `slots_mw` を式から引く際の唯一の出処。⛔ `['at', i, ['get','slots_mw']]` と直接書くと欠測 null で全コマ描画不能（`LESSONS.md` #42） |
 | `src/MapView.tsx` | Mapbox のラッパ。宣言からレイヤーを動的追加、遅延読込 |
 | `src/Sidebar.tsx` | 左サイドバー。中身は `layers.ts` から生成 |
 | `src/FeaturePanel.tsx` | 要素クリック時の情報パネル |

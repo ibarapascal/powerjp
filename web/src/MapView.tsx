@@ -12,9 +12,10 @@
 import { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import { LAYERS } from './layers'
-import { registerPieIcons, pieIconExpr } from './pieIcons'
+import { registerPieIcons, pieIconExpr, plantsFilter } from './pieIcons'
 import {
-  GLOW_TIERS, glowFilter, utilAt, startFlowAnimation, stopFlowAnimation,
+  GLOW_TIERS, glowFilter, utilAt, UTIL_RAMP,
+  startFlowAnimation, stopFlowAnimation,
 } from './flowGlow'
 import type { PickedFeature } from './types'
 
@@ -23,6 +24,8 @@ type Props = {
   enabled: Set<string>
   onPick: (f: PickedFeature | null) => void
   onLoadingChange: (id: string, busy: boolean) => void
+  /** 実データから数えた件数（レイヤー id → 件数）を返す */
+  onCounts: (c: Record<string, number>) => void
   /** 表示するコマ（`flow_stamps.json` の添字）。潮流の向きも色もこれで決まる */
   slotIdx: number
 }
@@ -32,7 +35,9 @@ type Props = {
 const INITIAL_CENTER: [number, number] = [139.75, 35.75]   // 東京
 const INITIAL_ZOOM = 8.2
 
-export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Props) {
+export function MapView({
+  token, enabled, onPick, onLoadingChange, onCounts, slotIdx,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const ready = useRef(false)
@@ -60,14 +65,12 @@ export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Pr
       // 目視・自動検証のコストの方が、わずかな描画オーバーヘッドより大きい。
       preserveDrawingBuffer: true,
     })
-    m.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
-    m.addControl(
-      new mapboxgl.AttributionControl({
-        customAttribution:
-          'OCCTO · AJG/OpenStreetMap (ODbL) · GEM · 国土数値情報',
-      }),
-      'bottom-right',
-    )
+    // ⛔ NavigationControl は置かない（ユーザー要求 2026-08-07）。
+    //    ズームはホイールとピンチで足りる。地図の上に物を足さない。
+    // ⛔ customAttribution も足さない —— 右下は Mapbox 既定の表記だけにする。
+    //    ⚠️ ただし AJG/OSM は ODbL、OCCTO は「出典明記」が条件なので、
+    //    出典表記そのものは消せない。サイドバー最下部の 1 行がその役目を担う。
+    m.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
     // dev のみ：デバッグ用に map インスタンスを露出
     if (import.meta.env.DEV) (window as unknown as { __map?: mapboxgl.Map }).__map = m
     m.on('error', (e) => console.error('[powerjp] mapbox error:', e?.error ?? e))
@@ -93,7 +96,7 @@ export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Pr
         console.warn('[powerjp] 底図の色調整をスキップ:', err)
       }
       ready.current = true
-      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, slot.current)
+      syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts, slot.current)
     })
     map.current = m
     return () => {
@@ -111,8 +114,8 @@ export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Pr
   useEffect(() => {
     const m = map.current
     if (!m || !ready.current) return
-    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, slotIdx)
-  }, [enabled, onLoadingChange, onPick, slotIdx])
+    syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts, slotIdx)
+  }, [enabled, onLoadingChange, onPick, onCounts, slotIdx])
 
   // ── コマの移動に追従 ──
   //
@@ -136,6 +139,8 @@ export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Pr
     if (m.getLayer('plants')) {
       try {
         m.setLayoutProperty('plants', 'icon-image', pieIconExpr(slotIdx) as never)
+        // ★ 欠測コマの機組は描かない。0 で描くと「停止中」と区別できない
+        m.setFilter('plants', plantsFilter(slotIdx) as never)
       } catch (err) {
         console.error('[powerjp] 扇形のコマ更新に失敗:', err)
       }
@@ -152,24 +157,37 @@ export function MapView({ token, enabled, onPick, onLoadingChange, slotIdx }: Pr
  * 「その線が混んでいるか」が読めない。比率なら階級をまたいで比較できる。
  * ⚠️ 容量は公開されていないため概算（publish 層 LINE_CAPACITY_MW）。
  *
- * ⚠️ 色標は**実際の分布**に合わせて低い側を密にする。
- *    実測（当日平均）: p25 9% / p50 19% / p75 40% / p90 56% / p95 68%
- *    等間隔に置くと過半数の区間が同じ黄色になり、時間帯ごとの差が読めない。
+ * ★ 色標そのものは `flowGlow.ts` の `UTIL_RAMP` が唯一の定義。
+ *   ここは式の形に直すだけ（凡例のグラデーションも同じ配列から作る）。
  */
 function utilColor(i: number): unknown[] {
   return [
     'interpolate', ['linear'], ['coalesce', utilAt(i), 0],
-    0.00, '#fff7b0',   //   0%  ほぼ無負荷（淡黄）
-    0.10, '#ffe14d',   //  10%  p25
-    0.20, '#ffc81a',   //  20%  p50
-    0.30, '#ffa50f',   //  30%
-    0.40, '#ff8412',   //  40%  p75
-    0.55, '#ff631c',   //  55%  p90
-    0.70, '#ff4124',   //  70%  p95
-    0.85, '#ff1f1f',   //  85%
-    1.00, '#e00000',   // 100%  赤（容量到達）
-    1.20, '#8f0000',   // 120%  暗赤（容量超過）
+    ...UTIL_RAMP.flat(),
   ]
+}
+
+/**
+ * 読み込んだ GeoJSON から、そのファイルを使うレイヤーの件数を数える。
+ *
+ * `LayerDef.count` が `{ prop, values }` を宣言しているレイヤーについて、
+ * そのプロパティの値が `values` のどれかに一致する feature を数えて
+ * `{ レイヤー id: 件数 }` を返す。
+ *
+ * ⛔ 件数をラベルに直接書かないこと（2026-08-07）。上流が更新されると
+ *    数字だけが古いまま残り、しかも誰も気づけない。
+ */
+function tallyCounts(file: string, data: unknown): Record<string, number> {
+  const feats = (data as { features?: { properties?: Record<string, unknown> }[] })
+    .features ?? []
+  const out: Record<string, number> = {}
+  for (const def of LAYERS) {
+    if (def.file !== file || !def.count) continue
+    const { prop, values } = def.count
+    out[def.id] = feats.filter((f) =>
+      values.includes(String(f.properties?.[prop] ?? 'unknown'))).length
+  }
+  return out
 }
 
 async function syncLayers(
@@ -179,6 +197,7 @@ async function syncLayers(
   pending: React.MutableRefObject<Set<string>>,
   onLoadingChange: (id: string, busy: boolean) => void,
   onPick: (f: PickedFeature | null) => void,
+  onCounts: (c: Record<string, number>) => void,
   slotIdx: number,
 ) {
   for (const def of LAYERS) {
@@ -199,6 +218,9 @@ async function syncLayers(
         //   layer ごとに source を作ると同じデータを何度も持つことになる。
         const srcId = def.file
         if (!m.getSource(srcId)) m.addSource(srcId, { type: 'geojson', data })
+        // ★ 件数は**読み込んだ実データから数える**。宣言に焼き込むと
+        //   上流が更新されたとき黙って古い数字を出し続ける。
+        onCounts(tallyCounts(def.file, data))
         if (!m.getLayer(def.id)) {
           m.addLayer({
             id: def.id,
@@ -213,6 +235,7 @@ async function syncLayers(
           // ここで上書きしないと、初回だけ最新コマ固定になる
           if (def.id === 'plants' && slotIdx >= 0) {
             m.setLayoutProperty(def.id, 'icon-image', pieIconExpr(slotIdx) as never)
+            m.setFilter(def.id, plantsFilter(slotIdx) as never)
           }
           m.on('click', def.id, (e) => {
             const f = e.features?.[0]

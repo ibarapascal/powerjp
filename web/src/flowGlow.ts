@@ -14,6 +14,7 @@
  * **コンポーネントのファイルからは、コンポーネント以外を export しない。**
  */
 import type mapboxgl from 'mapbox-gl'
+import { slotNumAt } from './slots'
 
 /**
  * 流光の位相列を**線幅ごとに**生成する。
@@ -131,12 +132,17 @@ export const GLOW_TIERS = TIER_WIDTHS.flatMap((t) => {
   ]
 })
 
-/** コマ i の潮流値（符号つき）。⚠️ 値が無いコマは null */
-export const slotAt = (i: number): unknown[] => ['at', i, ['get', 'slots_mw']]
+/**
+ * コマ i の潮流値（符号つき）。**欠測は 0**（向きの判定で自然に除かれる）。
+ * ⛔ `['at', i, ['get','slots_mw']]` と書き直さないこと —— 理由は `slots.ts`。
+ */
+export const slotAt = (i: number): unknown[] => slotNumAt(i)
 
 /**
  * 帯 t・コマ i のフィルタ。電圧帯で絞り、さらに**符号で向きを振り分ける**。
- * ⚠️ null（欠測）は明示的に除く。`['>', null, 0]` は評価できない。
+ * ⚠️ 欠測は `slotAt` が 0 にするので、`> 0` にも `< 0` にも入らず自然に落ちる。
+ *    以前あった `['!=', …, null]` は不要になった（`at` の結果が value 型なので
+ *    null 比較自体は書けるが、二重に判定する意味がない）。
  */
 export function glowFilter(t: (typeof GLOW_TIERS)[number], i: number): unknown[] {
   const kv = ['coalesce', ['get', 'kv'], 0]
@@ -145,9 +151,40 @@ export function glowFilter(t: (typeof GLOW_TIERS)[number], i: number): unknown[]
     : ['all', ['>=', kv, t.min], ['<', kv, t.max]]
   return ['all',
     band,
-    ['!=', slotAt(i), null],
     t.dir > 0 ? ['>', slotAt(i), 0] : ['<', slotAt(i), 0],
   ]
+}
+
+/**
+ * ★ 負荷率の色標。**これがただ一つの定義**。
+ *
+ * 地図の流光（Mapbox の `interpolate` 式）と、サイドバーの凡例（CSS の
+ * `linear-gradient`）が**同じ配列から**生成される。数値を 2 か所に書くと、
+ * 片方を直したときに凡例だけ古い色を出し続ける。
+ *
+ * ⚠️ 色標は**実際の分布**に合わせて低い側を密にしてある。
+ *    実測（当日平均）: p25 9% / p50 19% / p75 40% / p90 56% / p95 68%
+ *    等間隔に置くと過半数の区間が同じ黄色になり、時間帯ごとの差が読めない。
+ *    ⛔ 「等間隔の方が素直だから」で直さないこと。
+ */
+export const UTIL_RAMP: [number, string][] = [
+  [0.00, '#fff7b0'],   //   0%  ほぼ無負荷（淡黄）
+  [0.10, '#ffe14d'],   //  10%  p25
+  [0.20, '#ffc81a'],   //  20%  p50
+  [0.30, '#ffa50f'],   //  30%
+  [0.40, '#ff8412'],   //  40%  p75
+  [0.55, '#ff631c'],   //  55%  p90
+  [0.70, '#ff4124'],   //  70%  p95
+  [0.85, '#ff1f1f'],   //  85%
+  [1.00, '#e00000'],   // 100%  赤（容量到達）
+  [1.20, '#8f0000'],   // 120%  暗赤（容量超過）
+]
+
+/** 上の色標を CSS の `linear-gradient(90deg, …)` に直す。凡例はこれを使う */
+export const utilGradientCss = (): string => {
+  const max = UTIL_RAMP[UTIL_RAMP.length - 1][0]
+  const stops = UTIL_RAMP.map(([v, c]) => `${c} ${(v / max * 100).toFixed(1)}%`)
+  return `linear-gradient(90deg, ${stops.join(', ')})`
 }
 
 /**

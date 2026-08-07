@@ -8,6 +8,8 @@
     "preview": "vite preview --port 8081"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans-jp": "^5.3.0",
     "mapbox-gl": "^3.9.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

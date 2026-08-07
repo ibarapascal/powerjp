@@ -1,14 +1,61 @@
-/* ダーク基調。地図が主役なので UI は抑える。 */
+/**
+ * 計器盤（instrument panel）としての UI。
+ *
+ * ## 方針：UI に色を使わない。色はデータのものだけ
+ *
+ * 地図はすでに 3 つの配色を抱えている —— 青系＝電圧、黄橙赤＝負荷率、
+ * 電源種 8 色。ここに「UI のアクセント色」を足すと、画面上の色が
+ * **意味を持つ色と持たない色に分かれず**、どれがデータか読めなくなる。
+ * だからサイドバーの色は無彩色だけ。彩度を持つのは凡例の色見本と
+ * グラデーション帯 —— つまり**データそのもの**だけにする。
+ * ⛔ 「地味だから」でアクセント色を足さないこと。
+ *
+ * ## 書体：IBM Plex
+ *
+ * ⛔ `-apple-system` / `Inter` のような既定スタックに戻さない。
+ * IBM Plex は工業・技術文書のために設計された書体で、この計器盤という
+ * 性格に合う。数字（件数・電圧・MW）は **IBM Plex Mono** の等幅数字にして
+ * 桁を揃える —— 縦に並んだ数値が読めることがこの UI の主な仕事。
+ * 日本語は IBM Plex Sans JP が同じ設計思想でカバーする。
+ */
+@import '@fontsource/ibm-plex-sans-jp/400.css';
+@import '@fontsource/ibm-plex-sans-jp/500.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
 :root {
   --bg: #0b0f14;
-  --panel: #11161d;
-  --panel-2: #161c25;
-  --line: #232b36;
-  --text: #e9eef5;
-  --muted: #8b97a8;
-  --accent: #4fa3ff;
+  --panel: #0e1319;
+  --panel-2: #141a22;
+  --line: #1e2530;
+  --line-soft: #171d25;
+  /* ⚠️ コントラスト比は**実測して**決める（2026-08-07「対比度维持3以上，字调亮」）。
+     **下限は 4.5:1**（2026-08-07「那就 4.5 把最小」）。3:1 は WCAG が
+     大きい文字・非文字に置く値で、ここの文字は 8〜11px と小さいため足りない。
+     対 --panel(#0e1319) の実測比：
+       --text     14.8   --text-dim  9.0   --muted  6.0
+     ⛔ 「落ち着いた見た目」を理由に暗く戻さないこと。 */
+  --text: #dfe6ef;
+  --text-dim: #acb5c3;
+  --muted: #8893a7;
+  /* ⚠️ アクセントは**無彩色**。データの色と競合させない（上の方針） */
+  --accent: #cdd7e4;
   --warn: #ffb84d;
-  --sidebar-w: 320px;
+  /* 2026-08-07：320px から 1/3 削った。中身も「checkbox・凡例・一言」に絞る */
+  --sidebar-w: 213px;
+
+  --sans: "IBM Plex Sans JP", "IBM Plex Sans", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* ★ 字号は**この 5 段だけ**（2026-08-07）。
+     以前は 8 / 8.5 / 9 / 9.5 / 10 / 10.5 / 11 / 13 / 15 の 9 種が散在し、
+     隣り合う要素の差が 0.5px という「差が無いのに揃ってもいない」状態だった。
+     ⛔ ここに無い数値を直接書かないこと。段が要るなら段を足す。 */
+  --fs-1: 9px;     /* 目盛り・出典・件数など、読めれば足りるもの */
+  --fs-2: 10px;    /* 説明・凡例・項目名 */
+  --fs-3: 11px;    /* レイヤー名・値 */
+  --fs-4: 13px;    /* 現在時刻 */
+  --fs-5: 15px;    /* 銘板 */
 }
 
 * { box-sizing: border-box; }
@@ -18,14 +65,23 @@ html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Hiragino Sans",
-        "Noto Sans JP", "Segoe UI", sans-serif;
+  /* 2026-08-07：サイドバーの文字を一段小さく。基準を 13px → 11.5px */
+  font: var(--fs-3)/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 数値は等幅・タビュラー。桁が揃わないと縦に読めない */
+.count, .panel dd, .timebar-now, .legend-grad .ticks {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .app { display: flex; height: 100%; }
 
-/* ── サイドバー ── */
+/* ── サイドバー ──────────────────────────────────────────
+   ⛔ カード（角丸＋塗り）にしない。設定画面ではなく計器の一覧として、
+      罫線と左端のマーカーで状態を示す。 */
 .sidebar {
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
@@ -36,55 +92,83 @@ body {
   overflow: hidden;
 }
 
+/* 見出し。装飾ではなく銘板のつもりで置く */
 .brand {
-  padding: 18px 18px 14px;
+  padding: 14px 14px 12px;
   border-bottom: 1px solid var(--line);
 }
 .brand h1 {
   margin: 0;
-  font-size: 19px;
-  letter-spacing: 0.04em;
-  font-weight: 650;
+  font-family: var(--mono);
+  font-size: var(--fs-5);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text);
 }
-.brand p { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
-
-.groups { flex: 1; overflow-y: auto; padding: 6px 0 16px; }
-
-.group { padding: 10px 16px 4px; }
-.group h2 {
-  margin: 8px 0 8px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+.brand p {
+  margin: 3px 0 0;
+  font-size: var(--fs-1);
+  line-height: 1.45;
   color: var(--muted);
-  text-transform: uppercase;
 }
 
-.layer {
-  padding: 8px 10px;
-  border-radius: 7px;
-  margin-bottom: 4px;
-  border: 1px solid transparent;
+.groups { flex: 1; overflow-y: auto; padding: 2px 0 14px; }
+/* スクロールバーも計器の一部。既定の太いものは出さない */
+.groups::-webkit-scrollbar { width: 6px; }
+.groups::-webkit-scrollbar-thumb { background: var(--line); }
+
+.group { padding: 10px 14px 6px; }
+/* ⛔ uppercase + letter-spacing の見出しにしない（既定の「AI っぽさ」の元）。
+   代わりに等幅の小文字と、右へ伸びる罫線で区切る */
+.group h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
 }
-.layer.on { background: var(--panel-2); border-color: var(--line); }
+.group h2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* 1 行 = 1 レイヤー。左端 2px のマーカーだけで ON/OFF を示す */
+.layer {
+  position: relative;
+  padding: 5px 0 5px 9px;
+  border-left: 2px solid transparent;
+  transition: border-color 120ms linear;
+}
+.layer.on { border-left-color: var(--accent); }
 
 .layer .row {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  align-items: flex-start;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
 }
+
+/* checkbox は計器のトグル。角丸を最小にして機械的に */
 .layer input[type='checkbox'] {
   appearance: none;
-  width: 15px; height: 15px;
-  flex: 0 0 15px;
-  border: 1.5px solid #3a4553;
-  border-radius: 4px;
+  margin-top: 1px;          /* ラベル 1 行目の中心に合わせる */
+  width: 12px; height: 12px;
+  flex: 0 0 12px;
+  border: 1px solid #39434f;
+  border-radius: 2px;
   background: transparent;
   cursor: pointer;
   position: relative;
+  transition: background 120ms linear, border-color 120ms linear;
 }
+.layer input[type='checkbox']:hover { border-color: #55616f; }
 .layer input[type='checkbox']:checked {
   background: var(--accent);
   border-color: var(--accent);
@@ -92,111 +176,196 @@ body {
 .layer input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
-  left: 4px; top: 1px;
-  width: 4px; height: 8px;
+  left: 3.5px; top: 0.5px;
+  width: 3px; height: 7px;
   border: solid #0b0f14;
-  border-width: 0 2px 2px 0;
+  border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
-.layer .label { font-size: 12.5px; }
+/* 一部だけ ON（親）。チェックではなく横棒で「中間」を示す */
+.layer input[type='checkbox']:indeterminate {
+  background: transparent;
+  border-color: var(--accent);
+}
+.layer input[type='checkbox']:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 2px; top: 4.5px;
+  width: 6px; height: 1.5px;
+  background: var(--accent);
+}
+
+/* ラベルが余白を吸う。件数と ▸ は右端に固定される。
+   ⚠️ 213px 幅なので「変換所（直流・周波数変換）」は 2 行になる。
+      省略記号で切らない —— 種別名が読めないと選べない */
+.layer .label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-3);
+  line-height: 1.35;
+  color: var(--text-dim);
+  transition: color 120ms linear;
+}
+.layer.on .label { color: var(--text); }
+
+/* 件数。右端に等幅で揃える —— 縦に読める数字がこの UI の主眼 */
+.count {
+  flex: 0 0 auto;
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
 
 .note {
-  margin: 6px 0 0 24px;
-  font-size: 10.5px;
-  line-height: 1.5;
+  margin: 3px 0 0 20px;
+  font-size: var(--fs-2);
+  line-height: 1.45;
   color: var(--muted);
+  /* note の注意事項は `\n* …` で改行して書く（アイコンは使わない）。
+     pre-line が無いと改行が空白に潰れて 1 行に繋がる */
+  white-space: pre-line;
 }
 
 .legend {
   list-style: none;
-  margin: 8px 0 2px 24px;
+  margin: 5px 0 2px 20px;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 .legend li {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 10.5px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-2); color: var(--muted);
 }
 .legend i {
-  width: 14px; height: 3px; border-radius: 2px;
-  flex: 0 0 14px;
+  width: 12px; height: 2px;
+  flex: 0 0 12px;
+}
+
+/* 連続量の凡例。離散の色見本ではなく左→右のグラデーション帯 */
+.legend-grad { margin: 6px 0 2px 20px; }
+.legend-grad .bar {
+  height: 5px;
+  border: 1px solid var(--line);
+}
+.legend-grad .ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
+
+/* グループ共通の凡例。個別レイヤーより浅く置いて所属を示す */
+.group-legend {
+  margin-left: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .spinner {
-  width: 11px; height: 11px;
+  width: 9px; height: 9px;
   border: 1.5px solid var(--line);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
-  margin-left: auto;
+  margin-left: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── 入れ子（親レイヤー → 種別）──────────────────────────── */
+.layer.parent > .row .disclose {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--fs-1);
+  line-height: 1;
+  padding: 2px 0 2px 6px;
+}
+.layer.parent > .row .disclose:hover { color: var(--text); }
+.layer .children {
+  margin: 3px 0 2px 5px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line-soft);
+}
+.layer.nested { padding: 3px 0 3px 7px; }
+.layer.nested .label { font-size: var(--fs-2); }
+
 .attrib {
-  padding: 12px 16px 14px;
+  padding: 9px 14px 11px;
   border-top: 1px solid var(--line);
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: var(--fs-1);
+  line-height: 1.5;
   color: var(--muted);
 }
-.attrib p { margin: 0 0 6px; }
-.attrib strong { color: var(--text); }
-.attrib em { color: var(--warn); font-style: normal; }
+.attrib p { margin: 0; }
 .muted { color: var(--muted); }
 
 /* ── 地図 ── */
 .map-wrap { flex: 1; position: relative; }
 .map { position: absolute; inset: 0; }
 
-/* ── 要素パネル ── */
+/* ── 要素パネル ──────────────────────────────────────────
+   サイドバーと同じ作り（角丸を殺し、罫線で区切る）。
+   ⛔ 影を強くして「浮いたカード」にしない。地図の上に置く計器の窓。 */
 .panel {
   position: absolute;
-  right: 14px; top: 14px;
-  width: 290px;
-  max-height: calc(100% - 28px);
+  right: 12px; top: 12px;
+  /* ⚠️ 地図を覆いすぎない。サイドバー(213px)と同程度に留める */
+  width: 224px;
+  max-height: calc(100% - 24px);
   overflow-y: auto;
-  background: rgba(17, 22, 29, 0.96);
+  background: rgba(14, 19, 25, 0.95);
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 12px 14px 14px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  padding: 10px 12px 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 .panel-head {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 9px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
 }
+/* ⛔ uppercase + letter-spacing を戻さない。等幅で十分に「ラベル」に見える */
 .panel-head .tag {
-  font-size: 10px; letter-spacing: 0.08em;
-  color: var(--accent); text-transform: uppercase;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  color: var(--text-dim);
 }
 .panel-head button {
   background: none; border: none; color: var(--muted);
-  font-size: 17px; cursor: pointer; line-height: 1; padding: 0 2px;
+  font-size: var(--fs-4); cursor: pointer; line-height: 1; padding: 0 2px;
 }
 .panel-head button:hover { color: var(--text); }
 
+/* 推算値の警告。⚠️ P3（実測と推算は視覚的に必ず分ける）の一部なので消さない */
 .panel .warn {
-  margin: 0 0 10px;
-  padding: 7px 9px;
-  background: rgba(255, 184, 77, 0.1);
-  border: 1px solid rgba(255, 184, 77, 0.3);
-  border-radius: 6px;
-  font-size: 10.5px;
-  line-height: 1.5;
+  margin: 0 0 9px;
+  padding: 6px 8px;
+  background: rgba(255, 184, 77, 0.08);
+  border-left: 2px solid var(--warn);
+  font-size: var(--fs-2);
+  line-height: 1.45;
   color: var(--warn);
 }
 .panel dl { margin: 0; }
 .panel .kv {
-  display: flex; gap: 10px;
-  padding: 5px 0;
-  border-bottom: 1px solid rgba(35, 43, 54, 0.6);
+  display: flex; gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line-soft);
 }
 .panel .kv:last-child { border-bottom: none; }
-.panel dt { flex: 0 0 96px; color: var(--muted); font-size: 11px; }
-.panel dd { margin: 0; flex: 1; font-size: 11.5px; word-break: break-word; }
+.panel dt { flex: 0 0 74px; color: var(--muted); font-size: var(--fs-2); }
+.panel dd {
+  margin: 0; flex: 1;
+  font-size: var(--fs-3);
+  color: var(--text);
+  word-break: break-word;
+}
 
 /* ── トークン未設定画面 ── */
 .setup {
@@ -216,57 +385,25 @@ body {
 
 .mapboxgl-ctrl-attrib {
   background: rgba(11, 15, 20, 0.75) !important;
-  font-size: 10px;
+  font-size: var(--fs-1);
 }
 .mapboxgl-ctrl-attrib a { color: var(--muted) !important; }
-
-/* ── 設備容量の同心円凡例 ── */
-.cap-legend {
-  margin: 10px 0 2px 24px;
-  padding: 10px 10px 8px;
-  background: rgba(11, 15, 20, 0.5);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-}
-.cap-legend-title {
-  margin: 0 0 8px;
-  font-size: 10.5px;
-  color: var(--text);
-}
-.cap-legend svg circle {
-  fill: none;
-  stroke: #7d8b9c;
-  /* stroke-width は SVG 属性で半径に応じて指定する */
-}
-.cap-legend svg line {
-  stroke: #4a5563;
-  stroke-width: 1;
-  stroke-dasharray: 2 2;
-}
-.cap-legend svg text {
-  fill: var(--muted);
-  font-size: 9.5px;
-}
-.cap-legend-note {
-  margin: 8px 0 0;
-  font-size: 9.5px;
-  line-height: 1.5;
-  color: var(--muted);
-}
 
 /* ── 潮流の時刻スライダー ──────────────────────────────
    ⚠️ 自動再生はしない。既定は最新コマで、手で戻すだけ（ユーザー方針）。 */
 .timebar {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 14px;
   transform: translateX(-50%);
-  width: min(680px, calc(100% - 48px));
-  padding: 10px 14px 6px;
-  background: rgba(13, 17, 23, 0.92);
-  border: 1px solid #232b36;
-  border-radius: 8px;
-  backdrop-filter: blur(6px);
+  width: min(620px, calc(100% - 40px));
+  /* ⚠️ 左右は目盛りの端の数字が枠に触らないぶん。
+     下は日付ラベルのぶん —— 詰めすぎると 8/4 が枠に貼り付く */
+  padding: 8px 20px 9px;
+  background: rgba(11, 15, 20, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  backdrop-filter: blur(8px);
   z-index: 5;
 }
 .timebar-head {
@@ -275,55 +412,246 @@ body {
   gap: 10px;
   margin-bottom: 6px;
 }
+/* 時刻はこの画面で最も読まれる数字。等幅で桁を固定する */
 .timebar-now {
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-4);
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text);
 }
+/* ⛔ 丸ピル（border-radius: 999px）にしない —— 計器盤の言語ではない */
 .timebar-tag {
-  font-size: 10.5px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid #2f3a48;
-  background: #171d26;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
+.timebar-tag:hover { color: var(--text); border-color: #39434f; }
+/* 最新コマに居ることを示す。ここだけ色を使う —— 状態であって装飾ではない */
 .timebar-tag.live {
   border-color: #2b6f4a;
-  background: #12261c;
   color: #6fd39b;
   cursor: default;
 }
 .timebar-range {
   margin-left: auto;
-  font-size: 10px;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  color: var(--muted);
 }
+/* ── 物差し ──────────────────────────────────────────────
+   日 > 6 時間 > 1 時間 の 3 段。等間隔の点ではなく物差しにすると、
+   「どのくらい戻したか」が数えずに読める。 */
 .timebar-track {
   position: relative;
-  padding-bottom: 14px;
+  /* 罫(top:20) + 時刻(top:28) + 日付(さらに +12) + 行の高さ ぶん */
+  padding-bottom: 33px;
 }
+/* ★ 単一の時刻を指す「游標」。⛔ 左側を塗り潰さない
+   —— 塗ると「起点から現在までが選択されている」ように見え、
+   **区間を選んでいる**という誤解を生む（ユーザー指摘 2026-08-07）。
+   要素が `input[type=range]` なのは正しい：`range` は min〜max の
+   取り得る範囲を指すのであって、区間選択という意味ではない。
+   自前の div に置き換えると矢印キー・タッチ・ARIA を作り直す羽目になる。 */
 .timebar-track input[type='range'] {
-  width: 100%;
-  accent-color: #ffb02e;
-}
-.timebar-ticks {
+  -webkit-appearance: none;
+  appearance: none;
   position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+/* 軌道は端から端まで同じ太さ・同じ色。位置は游標だけが示す */
+.timebar-track input[type='range']::-webkit-slider-runnable-track {
+  height: 2px;
+  background: #677c9a;      /* 対背景 4.51 */
+}
+.timebar-track input[type='range']::-moz-range-track {
+  height: 2px;
+  background: #677c9a;
+}
+/* つまみは**当たり判定だけ**。見た目は `.timebar-cursor` が描く。
+   ⚠️ 透明にしても幅は残す —— 掴む面積が小さいとドラッグしづらい。 */
+.timebar-track input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: transparent;
+  cursor: ew-resize;
+}
+.timebar-track input[type='range']::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+/* ★ 現在位置の指針。丸 + 物差しまで下りる縦線。
+   丸だけだと目盛りと突き合わせられないので、線で位置を確定させる。 */
+.timebar-cursor {
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 34px;
+  z-index: 3;
+  pointer-events: none;
+}
+/* 縦線。下へ行くほど薄くして、物差しの罫を潰さない */
+.timebar-cursor::before {
+  content: '';
+  position: absolute;
+  left: -0.5px;
+  top: 8px;
+  height: 24px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    var(--text) 0%,
+    rgba(223, 230, 239, 0.55) 55%,
+    rgba(223, 230, 239, 0.15) 100%
+  );
+}
+/* 丸。暗いリングで地の罫から浮かせ、外側にごく薄いハローを置く */
+.timebar-cursor::after {
+  content: '';
+  position: absolute;
+  left: -6.5px;
+  top: 1.5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow:
+    0 0 0 2px rgba(11, 15, 20, 0.95),
+    0 0 0 3px rgba(205, 215, 228, 0.28),
+    0 1px 4px rgba(0, 0, 0, 0.6);
+}
+/* 脈動。⚠️ **指針の位置を示すためだけ**の動き。
+   外側へ広がって消える輪だけを動かし、丸そのものは動かさない
+   —— 丸が動くと「時刻がずれている」ように見える。
+   ⛔ 速く・強くしないこと。地図が主役で、ここは目印にすぎない。
+   ⛔ これは自動再生ではない（T2）。時刻は動かない。 */
+.timebar-cursor .pulse {
+  position: absolute;
+  left: -6.5px;
+  top: 1.5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  animation: cursor-pulse 2.4s ease-out infinite;
+}
+@keyframes cursor-pulse {
+  0%   { box-shadow: 0 0 0 2px rgba(205, 215, 228, 0.45); }
+  70%  { box-shadow: 0 0 0 10px rgba(205, 215, 228, 0); }
+  100% { box-shadow: 0 0 0 10px rgba(205, 215, 228, 0); }
+}
+/* 動きが苦手な利用者には出さない */
+@media (prefers-reduced-motion: reduce) {
+  .timebar-cursor .pulse { animation: none; }
+}
+
+.timebar-track input[type='range']:focus-visible {
+  outline: none;
+}
+.timebar-track input[type='range']:focus-visible ~ .timebar-cursor::after {
+  box-shadow:
+    0 0 0 2px rgba(11, 15, 20, 0.95),
+    0 0 0 4px rgba(205, 215, 228, 0.6),
+    0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.timebar-ruler {
+  position: absolute;
+  left: 0; right: 0; top: 20px;
+  height: 8px;
+  pointer-events: none;
+}
+.timebar-ruler i {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+/* 高さで階層を作る。色ではなく長さで区別する（色はデータのもの）。
+   日 > 6h > 3h > 1h の 4 段。数字は 3h ごとに出す。
+   ⚠️ **罫も 4.5:1 以上**（2026-08-07「刻度的各类线，也是要对比度至少 4.5」）。
+      対 #0b0f14 の実測：hour 4.63 / three 5.60 / six 7.00 / day 9.29。
+      ⛔ 「細い線だから薄くていい」で暗く戻さないこと —— 一番細いものこそ
+      薄いと消える。階層は**長さ**が担っているので色は明るくてよい。 */
+.timebar-ruler i.hour  { height: 3px; background: #6d7e93; }
+.timebar-ruler i.three { height: 4px; background: #7d8c9f; }
+.timebar-ruler i.six   { height: 6px; background: #939dab; }
+.timebar-ruler i.day   { height: 9px; background: var(--text-dim); }
+
+.timebar-ticks {
+  position: absolute;
+  left: 0; right: 0; top: 28px;
   height: 12px;
+  pointer-events: none;
 }
 .timebar-ticks span {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 9px;
-  color: var(--muted);
+  font-family: var(--mono);
   white-space: nowrap;
 }
+.timebar-ticks .hour { font-size: var(--fs-1); color: var(--muted); }
+/* 日付は 1 段下げて、時刻の数字と衝突させない。
+   時刻より一回り大きくして、日の切れ目が先に目に入るようにする */
+.timebar-ticks .day {
+  top: 12px;
+  font-size: var(--fs-2);
+  color: var(--text-dim);
+}
+
+/* 機組が欠測の区間。⚠️ 0 として描くと「全機停止」に見えるので、
+   斜線で「データが無い」ことを示す。⛔ 黙って通さないこと。
+   ⚠️ 目盛りの列まで覆って、物差しの上でも欠測が判るようにする */
+.timebar-gap {
+  position: absolute;
+  top: 0;
+  height: 30px;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 184, 77, 0.26) 0 2px,
+    transparent 2px 5px
+  );
+  border-left: 1px solid rgba(255, 184, 77, 0.75);
+}
+/* 帯の頭に用途を書く。凡例を探させない */
+.timebar-gap::after {
+  content: '調整力なし';
+  position: absolute;
+  left: 4px; top: 17px;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  color: var(--warn);
+  white-space: nowrap;
+}
+/* いま見ているコマが欠測区間に入っているときのバッジ */
+.timebar-tag.nodata {
+  border-color: rgba(255, 184, 77, 0.45);
+  color: var(--warn);
+  cursor: default;
+}
+
 /* 情報パネル：いま見ているコマの実測値 */
+/* 情報パネル：いま見ているコマの実測値。角丸を殺し左の罫線で括る */
 .slotnow {
-  margin: 0 0 10px;
-  padding: 8px 10px;
-  background: #131922;
-  border: 1px solid #232b36;
-  border-radius: 6px;
+  margin: 0 0 9px;
+  padding: 6px 9px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--line);
 }

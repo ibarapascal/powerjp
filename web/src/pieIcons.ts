@@ -21,6 +21,7 @@
  * 同じ容量でも circle レイヤーの点より小さく見える。
  * 換算は `layers.ts` の capIconSize が DRAW_DIAMETER を使って行う。
  */
+import { slotMissingAt, slotNumAt } from './slots'
 
 export const ICON_PX = 64
 /** 利用率の段階数（0〜100% を CF_STEPS 段に量子化） */
@@ -57,8 +58,11 @@ export function iconId(fuel: string, step: number): string {
  *    画像を指してアイコンが**全部消える**。
  */
 export function pieIconExpr(i: number): unknown[] {
-  // 出力（MW）。潮流と違って符号は無いが、欠測（null）はある
-  const mw = ['coalesce', ['at', i, ['get', 'slots_mw']], 0]
+  // 出力（MW）。潮流と違って符号は無いが、欠測（null）はある。
+  // ⛔ `['at', i, ['get','slots_mw']]` と書き直さないこと —— 理由は `slots.ts`。
+  //    欠測は 0 に倒すが、**0 の扇形（＝停止中）と混ざる**ので、
+  //    欠測コマの機組は `plantsFilter()` で描画そのものから外す。
+  const mw = slotNumAt(i)
   const load = ['/', mw, ['max', ['coalesce', ['get', 'capacity_mw'], 0], 1]]
   return [
     'concat',
@@ -72,6 +76,18 @@ export function pieIconExpr(i: number): unknown[] {
     // 0〜1 に収めてから CF_STEPS 段に量子化。容量超過（>1）は満扇へ丸める
     ['to-string', ['round', ['*', ['min', load, 1], CF_STEPS]]],
   ]
+}
+
+/**
+ * コマ i で**描く機組**の条件。欠測コマの機組は描かない。
+ *
+ * ⚠️ 欠測を 0 として描くと「停止中（出力 0）」と見分けがつかなくなる。
+ *    `occto_unit` は T+1 公表なので当日ぶんは丸一日欠測になり、
+ *    黙って 0 で描くと**全機停止しているように見える**。
+ *    円環ごと消えるのは情報の欠落だが、嘘をつくよりはよい。
+ */
+export function plantsFilter(i: number): unknown[] {
+  return ['!', slotMissingAt(i)]
 }
 
 function drawPie(color: string, cf: number): ImageData {

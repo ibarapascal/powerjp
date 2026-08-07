@@ -18,22 +18,46 @@ export default function App() {
   )
   const [picked, setPicked] = useState<PickedFeature | null>(null)
   const [loading, setLoading] = useState<Set<string>>(new Set())
+  /** 実データから数えた件数（レイヤー id → 件数）。宣言に焼き込まない */
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const [stamps, setStamps] = useState<string[]>([])
   // ⚠️ 初期値は -1（未確定）。stamps を読むまでコマ番号は決められない。
   //    0 を入れると一瞬 72 時間前が映ってから最新に飛ぶ。
   const [slotIdx, setSlotIdx] = useState(-1)
+  /** 機組の実測が入っている最後のコマ。これより後ろは調整力が出ない（T+1 公表） */
+  const [unitLastIdx, setUnitLastIdx] = useState(-1)
 
   // 時刻ラベルは GeoJSON とは別ファイル（全 feature 共通なので重複させない）
   useEffect(() => {
     const base = (import.meta.env.VITE_DATA_BASE as string | undefined) ?? '/data'
     fetch(`${base.replace(/\/$/, '')}/flow_stamps.json`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { stamps?: string[] }) => {
+      .then((d: { stamps?: string[]; unit_last_idx?: number }) => {
         const s = d.stamps ?? []
         setStamps(s)
-        setSlotIdx(s.length - 1)      // ★ 既定は最新コマ
+        // publish が出すのは**事実**（機組がどこまであるか）。
+        // 既定コマをどこに置くかはこちらの判断。
+        const u = d.unit_last_idx ?? -1
+        setUnitLastIdx(u)
+        // ★ 既定は「潮流も機組も値があるコマ」＝ 機組の最後。
+        //   ⚠️ 末尾ではない —— `occto_unit` は T+1 公表なので、末尾にすると
+        //   潮流だけ出て発電所が 1 つも出ない画面が既定になる。
+        setSlotIdx(u >= 0 && u < s.length ? u : s.length - 1)
       })
       .catch((err) => console.error('[powerjp] flow_stamps.json の読込に失敗:', err))
+  }, [])
+
+  const mergeCounts = useCallback((c: Record<string, number>) => {
+    setCounts((prev) => ({ ...prev, ...c }))
+  }, [])
+
+  /** 親 checkbox 用。子をまとめて ON/OFF する（一部 ON なら全 ON に倒す） */
+  const toggleMany = useCallback((ids: string[], on: boolean) => {
+    setEnabled((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) on ? next.add(id) : next.delete(id)
+      return next
+    })
   }, [])
 
   const toggle = useCallback((id: string) => {
@@ -74,13 +98,15 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar enabled={enabled} loading={loading} onToggle={toggle} />
+      <Sidebar enabled={enabled} loading={loading} counts={counts}
+               onToggle={toggle} onToggleMany={toggleMany} />
       <main className="map-wrap">
         <MapView
           token={token}
           enabled={enabled}
           onPick={setPicked}
           onLoadingChange={onLoadingChange}
+          onCounts={mergeCounts}
           slotIdx={slotIdx}
         />
         {picked && (
@@ -88,7 +114,8 @@ export default function App() {
                         onClose={() => setPicked(null)} />
         )}
         {enabled.has('flow_lines') && slotIdx >= 0 && (
-          <TimeSlider stamps={stamps} index={slotIdx} onChange={setSlotIdx} />
+          <TimeSlider stamps={stamps} index={slotIdx}
+                      unitLastIdx={unitLastIdx} onChange={setSlotIdx} />
         )}
       </main>
     </div>

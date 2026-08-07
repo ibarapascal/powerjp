@@ -24,7 +24,23 @@
  * ——**保真を可読性より優先する**——の UI 側の現れ。
  */
 
+import { utilGradientCss } from './flowGlow'
+
 export type LegendItem = { color: string; label: string; dashed?: boolean }
+
+/**
+ * 連続量の凡例。離散の色見本を並べる代わりに**左→右のグラデーション帯**を出す。
+ *
+ * ユーザー要求（2026-08-07）：「配色 OK、但是图例能不能从左到右渐变就行」。
+ * 負荷率のように連続する量を階段状の色見本で見せると、
+ * 「9 段の離散値」だと誤読される。実際は連続補間している。
+ */
+export type LegendGradient = {
+  /** CSS の linear-gradient。色標の配列から生成すること（手書きしない） */
+  css: string
+  /** 帯の下に置く目盛り。左端・右端を含める */
+  ticks: string[]
+}
 
 export type LayerDef = {
   id: string
@@ -43,9 +59,28 @@ export type LayerDef = {
    */
   filter?: unknown[]
   defaultOn: boolean
-  /** 侧边栏里的一句话说明 —— 尤其要写清是实测还是推算 */
+  /**
+   * 侧边栏里的一句话说明 —— 尤其要写清是实测还是推算。
+   *
+   * ⛔ **本文にアイコン（⚠️ / ⛔ / ★）を使わない**（ユーザー要求 2026-08-07）。
+   *    注意事項は改行してアスタリスクを頭に置く：
+   *
+   *        note: '実測 330 本。流光の色＝負荷率\n* 容量は概算'
+   *
+   *    改行を活かすため `.note` は `white-space: pre-line`。
+   */
   note?: string
   legend?: LegendItem[]
+  /** 連続量の凡例（グラデーション帯）。`legend` と併用しない */
+  legendGradient?: LegendGradient
+  /** 親の id。指定するとサイドバーで入れ子になる（`PARENTS` 参照） */
+  parent?: string
+  /**
+   * サイドバーに出す件数の集計方法。
+   * ⛔ 件数を label に直接書かないこと —— 上流が更新されると黙って古い数字が残る。
+   * `prop` を GeoJSON から数え上げ、`values` の合計をラベルに出す。
+   */
+  count?: { prop: string; values: string[] }
   /** 点击要素时，信息面板按这个顺序显示属性。
    *  `map` は生の値（`voltage` のようなコード）を日本語に置き換える */
   popupFields?: { key: string; label: string; map?: Record<string, string> }[]
@@ -146,18 +181,11 @@ const capT = (field: string): unknown[] => [
 const T_MIN = 1          // 1^0.4
 const T_MAX = 32.3       // 6000^0.4
 
-/**
- * 容量（MW）→ 半径（px）を **JS で**計算する。
- *
- * ⚠️ 凡例（Sidebar の同心円）はこれを使うこと。
- *    Mapbox の式を目で読んで別に数値を書くと、片方を直したときにずれる。
- *    地図と凡例は**同じ関数**から出す。
- */
-export function capRadiusPx(mw: number, zoom: 4 | 11 = 11): number {
-  const t = (Math.max(mw, CAP_MIN_MW) ** P - T_MIN) / (T_MAX - T_MIN)
-  const [lo, hi] = zoom === 4 ? [1.2, 14.0] : [2.5, 34.0]
-  return lo + (hi - lo) * Math.max(0, Math.min(1, t))
-}
+// ⚠️ 容量→半径を JS で出す `capRadiusPx()` は削除した（2026-08-07）。
+//    唯一の利用者だったサイドバーの同心円凡例が無くなったため。
+//    地図側は下の `capRadius` / `capStrokeWidth` / `capIconSize`（Mapbox 式）を使う。
+//    ⚠️ JS 側でも半径が要る用途が出たら、数値を書き写さずここに関数を戻すこと
+//    —— 式と JS で別々に数値を持つと、スケールを調整したとき片方だけ古くなる。
 
 /**
  * 容量（MW）→ 輪郭の太さ（px）。
@@ -251,6 +279,80 @@ const FUEL_COLOR: unknown[] = [
   '#9aa5b1',
 ]
 
+/**
+ * 変電所の種別 → レイヤー。`substations.geojson` を `stype` で切り分ける。
+ *
+ * ⚠️ source は file 単位で 1 つしか作られない（MapView 参照）ので、
+ *    8 レイヤーでも GeoJSON は 1 回しか読まない。
+ *
+ * ⚠️ `その他` と `種別不明` を混ぜないこと ——「他の種別だと分かっている」と
+ *    「何か分からない」は別の情報。stype_source が `none` のものが不明。
+ */
+const SUBSTATION_KINDS: {
+  id: string; label: string; stype: string[]; note?: string
+}[] = [
+  { id: 'sub_transmission', label: '送電用変電所', stype: ['transmission'] },
+  { id: 'sub_distribution', label: '配電用変電所', stype: ['distribution'] },
+  { id: 'sub_traction', label: '鉄道用変電所', stype: ['traction'] },
+  { id: 'sub_transition', label: '架空・地中切替所', stype: ['transition'] },
+  { id: 'sub_switching', label: '開閉所', stype: ['switching'] },
+  { id: 'sub_converter', label: '変換所（直流・周波数変換）', stype: ['converter'] },
+  { id: 'sub_other', label: 'その他', stype: ['industrial', 'generation', 'compensation'],
+    note: '需要家・発電所構内・調相設備' },
+  { id: 'sub_unknown', label: '種別不明', stype: ['unknown'],
+    note: '名称も電圧も手がかりが無かったもの' },
+]
+
+/** 変電所の共通 paint。⚠️ 輪郭を付けない —— 理由は下の注記 */
+const SUB_PAINT: Record<string, unknown> = {
+  'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.6, 12, 5.5],
+  'circle-color': KV_COLOR,
+  // ⚠️ 輪郭を付けない。8,994 か所あり半径 1.2〜5.5px と小さいので、
+  //    輪郭を足すと点が輪郭で埋まって電圧の色が読めなくなる
+  //    （2026-08-02 に 0.5px の暗色輪郭を廃止）。
+  //    密集して潰れるのは想定内 —— 隠すのではなく不透明度で調整する（P2）。
+  'circle-opacity': 0.85,
+}
+
+const SUB_POPUP: LayerDef['popupFields'] = [
+  { key: 'name', label: '名称' },
+  { key: 'stype_ja', label: '種別' },
+  // 種別が実データ由来か推定かを隠さない。voltage は電圧からの推定
+  {
+    key: 'stype_source', label: '種別の根拠',
+    map: {
+      osm: 'OSM の substation タグ',
+      name: '名称（「開閉所」など）',
+      operator: '事業者名',
+      voltage: '電圧からの推定',
+      none: '判定できず',
+    },
+  },
+  { key: 'kv', label: '電圧 (kV)' },
+  { key: 'trunk', label: 'OCCTO 基幹系統' },
+  { key: 'region', label: '地域' },
+]
+
+const SUBSTATION_LAYERS: LayerDef[] = SUBSTATION_KINDS.map((k, i) => ({
+  id: k.id,
+  order: 5 + i * 0.01,   // 互いに重ならない値。整数の 5 は使い切っている
+  group: '送電網',
+  parent: 'substations',
+  label: k.label,
+  file: 'substations.geojson',
+  kind: 'circle' as const,
+  // ⚠️ 既定は**全 OFF**（ユーザー要求 2026-08-07）。
+  //    8,994 点は初期表示では多すぎる。必要な種別だけ手で入れる。
+  //    ⛔ 「無いと寂しい」で ON に戻さないこと。
+  defaultOn: false,
+  ...(k.note ? { note: k.note } : {}),
+  filter: ['match', ['coalesce', ['get', 'stype'], 'unknown'], k.stype, true, false],
+  // ★ 件数は読み込んだ GeoJSON から数える。label に焼き込まない
+  count: { prop: 'stype', values: k.stype },
+  paint: SUB_PAINT,
+  popupFields: SUB_POPUP,
+}))
+
 export const LAYERS: LayerDef[] = [
   // ── 送電網（静的骨格）──────────────────────────────────────
   {
@@ -265,13 +367,12 @@ export const LAYERS: LayerDef[] = [
     filter: ['all',
       ['==', ['get', 'in_topology'], true],
       ['!=', ['get', 'underground'], true]],
-    note: 'AJG (OpenStreetMap 由来)。拓撲図に含まれ、潮流の経路探索に使える線。⛔ 幾何は一切簡略化していない',
+    note: '系統に接続。幾何は簡略化していない',
     paint: {
       'line-color': KV_COLOR,
       'line-width': KV_LINE_WIDTH,
       'line-opacity': 0.92,
     },
-    legend: KV_LEGEND,
     popupFields: [
       { key: 'name', label: '線路名' },
       { key: 'kv', label: '電圧 (kV)' },
@@ -294,14 +395,13 @@ export const LAYERS: LayerDef[] = [
     filter: ['all',
       ['!=', ['get', 'in_topology'], true],
       ['!=', ['get', 'underground'], true]],
-    note: '原データにはあるが拓撲図に入らなかった線。地図には出るが潮流計算には使われない',
+    note: '接続情報なし。潮流計算には使わない',
     paint: {
       'line-color': KV_COLOR,
       'line-width': KV_LINE_WIDTH,
       // 一段だけ暗く。消さずに主従を付ける
       'line-opacity': 0.45,
     },
-    legend: [{ color: '#4f93cc', label: '接続情報が無い線（計算には未使用）' }],
     popupFields: [
       { key: 'name', label: '線路名' },
       { key: 'kv', label: '電圧 (kV)' },
@@ -318,7 +418,7 @@ export const LAYERS: LayerDef[] = [
     kind: 'line',
     defaultOn: true,
     filter: ['==', ['get', 'underground'], true],
-    note: '地下・水底のケーブル 1,271 本。⚠️ 都市部の地下線は OSM 自体にほとんど無く、これは実在するもののごく一部',
+    note: '地下・水底ケーブル',
     paint: {
       'line-color': KV_COLOR,
       'line-width': KV_LINE_WIDTH,
@@ -328,7 +428,6 @@ export const LAYERS: LayerDef[] = [
       //    data-driven な線幅と併用してもテクスチャの作り直しは起きない。
       'line-dasharray': [2, 1.5],
     },
-    legend: [{ color: '#6ba3d6', label: '地下・水底ケーブル（破線）', dashed: true }],
     popupFields: [
       { key: 'name', label: '線路名' },
       { key: 'kv', label: '電圧 (kV)' },
@@ -336,51 +435,13 @@ export const LAYERS: LayerDef[] = [
       { key: 'in_topology', label: '拓撲図に含まれる' },
     ],
   },
-  {
-    id: 'substations',
-    order: 5,
-    group: '送電網',
-    label: '変電所・開閉所ほか',
-    file: 'substations.geojson',
-    kind: 'circle',
-    defaultOn: true,
-    // ⚠️ 「変電所 8,994 か所」は不正確だった。この 8,994 点には配電用・鉄道用・
-    //    需要家の自家用、さらに「所」ですらない架空/地中の切替所まで混じる。
-    //    色は電圧のまま（種別で分けない）が、内訳は必ず示す。
-    note: 'AJG 8,994 か所。内訳＝配電用 4,235／送電用 2,690／鉄道用 789／'
-      + '需要家 352／架空・地中の切替所 169／開閉所 137／発電所構内 45／'
-      + '変換所 28／調相設備 15／種別不明 534。'
-      + 'うち 619 か所は OCCTO 基幹送電線の端点に名前が出る＝基幹系統。'
-      + '色は種別ではなく電圧区分',
-    legend: KV_LEGEND,
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.6, 12, 5.5],
-      'circle-color': KV_COLOR,
-      // ⚠️ 輪郭を付けない。変電所は 8,994 か所あり、半径 1.2〜5.5px と小さい。
-      //    そこに輪郭を足すと点が輪郭で埋まり、電圧の色が読めなくなる
-      //    （2026-08-02 に 0.5px の暗色輪郭を廃止）。
-      //    密集して潰れるのは想定内 —— 隠すのではなく不透明度で調整する（P2）。
-      'circle-opacity': 0.85,
-    },
-    popupFields: [
-      { key: 'name', label: '名称' },
-      { key: 'stype_ja', label: '種別' },
-      // 種別が実データ由来か推定かを隠さない。voltage は電圧からの推定
-      {
-        key: 'stype_source', label: '種別の根拠',
-        map: {
-          osm: 'OSM の substation タグ',
-          name: '名称（「開閉所」など）',
-          operator: '事業者名',
-          voltage: '⚠️ 電圧からの推定',
-          none: '判定できず',
-        },
-      },
-      { key: 'kv', label: '電圧 (kV)' },
-      { key: 'trunk', label: 'OCCTO 基幹系統' },
-      { key: 'region', label: '地域' },
-    ],
-  },
+  // ── 変電所：種別ごとに 1 レイヤー（サイドバーでは入れ子）──────────
+  //
+  // ★ 色では種別を区別しない（ユーザー判断 2026-08-07）。
+  //   色は電圧のまま、**種別は checkbox で出し入れする**。
+  //   地図の色相はもう空きが無い —— 青系＝電圧、黄橙赤＝負荷率、
+  //   電源種 8 色も同じ「円」。ここに種別 10 色を足すと必ず衝突する。
+  ...SUBSTATION_LAYERS,
 
   // ── 潮流 ────────────────────────────────────────────────
   {
@@ -390,7 +451,7 @@ export const LAYERS: LayerDef[] = [
     file: 'flow_lines.geojson',
     kind: 'line',
     defaultOn: true,
-    note: 'OCCTO 公表 464 本のうち 330 本の実走線を復元（684 区間）。⛔ 経路が別電圧の線に迷い込んだ区間と長い直線代用は**描画しない**。線の色・太さは電圧、流光の色が**負荷率**（潮流÷想定容量）、流光の向きが**その時刻の実際の流れる向き**。直近 72 時間を 30 分刻みで遡れる（既定は最新）。⚠️ 実測 464 本中 155 本（33%）は日によって向きが変わるため、向きは時刻ごとに判定している。⚠️ 容量は非公開のため電圧階級からの概算。⚠️ 経路はグラフ上の求解であり公式の線路図ではない',
+    note: '実測 330 本。流光の色＝負荷率、向き＝その時刻の流れ\n* 容量は概算',
     // ★ 底色は**送電線と完全に同じ**（電圧の青・同じ幅）。
     //   潮流の強弱は上を走る流光の色（黄→橙→赤）だけで表す。
     //   ⚠️ 以前は本体を橙にしていたため、黄の流光と合わさって
@@ -401,18 +462,11 @@ export const LAYERS: LayerDef[] = [
       'line-width': KV_LINE_WIDTH,
       'line-opacity': 0.92,
     },
-    legend: [
-      { color: '#fff7b0', label: '負荷率 0%' },
-      { color: '#ffe14d', label: '10%' },
-      { color: '#ffc81a', label: '20%' },
-      { color: '#ffa50f', label: '30%' },
-      { color: '#ff8412', label: '40%' },
-      { color: '#ff631c', label: '55%' },
-      { color: '#ff4124', label: '70%' },
-      { color: '#e00000', label: '100%（容量到達）' },
-      { color: '#8f0000', label: '120%（容量超過）' },
-      { color: '#9aa5b1', label: '線の色と太さは電圧（青系）のまま', dashed: true },
-    ],
+    // ★ 色は `flowGlow.ts` の UTIL_RAMP から生成。ここに数値を書かない
+    legendGradient: {
+      css: utilGradientCss(),
+      ticks: ['負荷率 0%', '50%', '100%', '120%'],
+    },
     popupFields: [
       { key: 'line', label: '送電線名' },
       { key: 'area', label: 'エリア' },
@@ -441,7 +495,7 @@ export const LAYERS: LayerDef[] = [
     file: 'plants.geojson',
     kind: 'symbol',
     defaultOn: true,
-    note: 'OCCTO 発電情報公表システムの 30 分実測。円の大きさ＝設備容量、中の扇形＝**その時刻の出力÷容量**。火力・原子力・水力（揚水中心）183 か所',
+    note: '30 分実測。円＝容量、扇形＝その時刻の出力÷容量',
     // ★ 円＝容量、扇形＝実発電。`circle` では扇形が描けないので symbol を使う。
     //   アイコンは pieIcons.ts が「電源種 × 利用率 21 段」で焼いて登録する。
     layout: {
@@ -477,7 +531,6 @@ export const LAYERS: LayerDef[] = [
       { color: '#d13b30', label: '火力（石炭）' },
       { color: '#7e8a97', label: 'その他火力（副生ガス等・内訳不明）' },
       { color: '#35c4d4', label: '水力・揚水' },
-      { color: '#e9eef5', label: '円＝設備容量（対数）／扇形＝その時刻の出力÷容量', dashed: true },
     ],
     popupFields: [
       { key: 'name', label: '発電所' },
@@ -503,7 +556,7 @@ export const LAYERS: LayerDef[] = [
     file: 'sites.geojson',
     kind: 'circle',
     defaultOn: true,
-    note: '⚠️ 推算値。エリア実績を設備容量比で按分したもので、個別実測ではない。水力・風力・地熱・バイオマス 624 か所',
+    note: '推算\n* エリア実績の按分。個別実測ではない',
     paint: {
       // ★ plants と**同一スケール**（1MW〜6,000MW）。別々にすると
       //   30MW と 3,000MW がほぼ同じ大きさになる
@@ -533,5 +586,22 @@ export const LAYERS: LayerDef[] = [
   },
 ]
 
-/** 侧边栏分组顺序 */
+/**
+ * サイドバーの入れ子の親。**地図のレイヤーではなく UI 上のまとめ**。
+ *
+ * ユーザー要求（2026-08-07）：「各种站点做成多级 checkbox，不是平铺开加这么多」。
+ * 種別を平らに 8 個並べるとサイドバーが変電所だけで埋まる。
+ * 親でまとめて開閉し、親の checkbox で子を一括切り替えする。
+ */
+export type ParentDef = { id: string; group: string; label: string; note?: string }
+export const PARENTS: ParentDef[] = [
+  {
+    id: 'substations', group: '送電網', label: '変電所・開閉所ほか',
+  },
+]
+
+export const GROUP_LEGENDS: Record<string, LegendItem[]> = {
+  '送電網': KV_LEGEND,
+}
+
 export const GROUP_ORDER = ['潮流', '発電', '送電網']
