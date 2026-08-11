@@ -23,16 +23,20 @@ class IngestWindow(Config):
     だから 30 分更新は `force=True` で上書きさせる。
     日次の穴埋めは `force=False` のまま、揃っている日を触らない。
 
-    `days=2` は日付をまたぐ瞬間の取りこぼしを防ぐため（当日＋前日）。
+    `include_today=True` を付けた `days=2` は日付をまたぐ瞬間の取りこぼしを
+    防ぐため（当日＋前日）。通常の CLI の `--days 2` は昨日までの 2 日間。
     """
 
     days: int = 7
     force: bool = False
+    include_today: bool = False
 
     def args(self) -> list[str]:
         a = ["--days", str(self.days)]
         if self.force:
             a.append("--force")
+        if self.include_today:
+            a.append("--include-today")
         return a
 
 
@@ -131,5 +135,4 @@ def raw_jepoc_hydro(
     有効落差 / 最大使用水量 / 流域面積 —— AJG 与 GEM 都没有的水力参数。
     """
     return run_and_report(context, cfg, "pipeline.sources.jepoc_hydro.ingest")
-
 

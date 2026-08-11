@@ -124,6 +124,10 @@ def main() -> None:
     g.add_argument("--all", action="store_true", help="2024-03-25 至今全量")
     g.add_argument("--date", help="单日 YYYYMMDD")
     g.add_argument("--days", type=int, default=7, help="最近 N 天（默认 7）")
+    ap.add_argument(
+        "--include-today", action="store_true",
+        help="让 --days 窗口包含今天（默认窗口结束于昨天）",
+    )
     ap.add_argument("--from", dest="date_from", help="起始日 YYYYMMDD")
     ap.add_argument("--to", dest="date_to", help="结束日 YYYYMMDD")
     ap.add_argument("--dry-run", action="store_true")
@@ -132,18 +136,20 @@ def main() -> None:
 
     fetch.setup_logging()
 
-    # 当日 15:30 才更新，默认不碰今天
+    # 当日 15:30 才更新，默认不碰今天；30 分钟增量任务显式包含今天，
+    # 当天尚未发布时由 no_data 安全跳过。
     yesterday = date.today() - timedelta(days=1)
+    window_end = date.today() if args.include_today else yesterday
     if args.date:
         days = [datetime.strptime(args.date, "%Y%m%d").date()]
     elif args.date_from:
         start = datetime.strptime(args.date_from, "%Y%m%d").date()
-        end = datetime.strptime(args.date_to, "%Y%m%d").date() if args.date_to else yesterday
+        end = datetime.strptime(args.date_to, "%Y%m%d").date() if args.date_to else window_end
         days = daterange(start, end)
     elif args.all:
-        days = daterange(FIRST_DATE, yesterday)
+        days = daterange(FIRST_DATE, window_end)
     else:
-        days = daterange(yesterday - timedelta(days=args.days - 1), yesterday)
+        days = daterange(window_end - timedelta(days=args.days - 1), window_end)
 
     days = [d for d in days if d >= FIRST_DATE]
     if not days:

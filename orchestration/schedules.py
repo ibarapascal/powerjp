@@ -38,7 +38,7 @@ DYNAMIC = "dynamic"
 assert DYNAMIC in spec.LAYER_FILES, f"{DYNAMIC} は spec に無い層"
 
 # ── 30 分更新 ────────────────────────────────────────────────
-# 直近 2 日を force で取り直し、publish まで通す。
+# 当日＋前日の 2 日を force で取り直し、publish まで通す。
 _REFRESH = AssetSelection.assets(
     "raw_occto_flow", "raw_occto_unit", "publish_geojson", "publish_r2",
 )
@@ -49,8 +49,8 @@ refresh_job = define_asset_job(
     description="潮流・機組の直近 2 日を取り直して GeoJSON を作り直す",
     config=RunConfig(ops={
         # ★ force=True でないと当日ファイルが更新されない（IngestWindow の注記）
-        "raw_occto_flow": IngestWindow(days=2, force=True),
-        "raw_occto_unit": IngestWindow(days=2, force=True),
+        "raw_occto_flow": IngestWindow(days=2, force=True, include_today=True),
+        "raw_occto_unit": IngestWindow(days=2, force=True, include_today=True),
         # ★ static（送電線 19.6MB・変電所）は 30 分では変わらない。作り直さない
         "publish_geojson": PublishScope(only=DYNAMIC),
         "publish_r2": PublishScope(only=DYNAMIC),

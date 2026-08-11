@@ -67,6 +67,7 @@
 ```bash
 python -m pipeline.sources.occto_unit.ingest              # 最近 7 天（默认）
 python -m pipeline.sources.occto_unit.ingest --days 30
+python -m pipeline.sources.occto_unit.ingest --days 2 --include-today --force  # 30 分钟增量
 python -m pipeline.sources.occto_unit.ingest --date 20260730
 python -m pipeline.sources.occto_unit.ingest --from 20240325 --to 20241231
 python -m pipeline.sources.occto_unit.ingest --all        # 2024-03-25 至今

@@ -31,6 +31,7 @@ python -m pipeline.sources.occto_flow.ingest --date 20260731
 python -m pipeline.sources.occto_flow.ingest --from 20250401 --to 20250430
 python -m pipeline.sources.occto_flow.ingest --all            # 2023-01-01 至今
 python -m pipeline.sources.occto_flow.ingest --area 3 --days 3
+python -m pipeline.sources.occto_flow.ingest --days 2 --include-today --force  # 30 分增量
 ```
 
 ### 调用流程（四步）
@@ -114,7 +115,9 @@ storage/raw/occto_flow/{YYYY-MM}/chinai_kikan_jisseki_{YYYYMMDD}_{NN}.csv
 
 ### 当日数据 23:32 之后才齐
 
-默认不取当天（`--days N` 的窗口结束于昨天）。取当天会拿到不完整的一天，而且文件已存在就不会再补 —— 要补得加 `--force`。
+默认不取当天（`--days N` 的窗口结束于昨天）。30 分钟增量任务使用
+`--include-today --force`，把当日文件反复覆盖以接收新断面；日次穴埋仍不取当天。
+取当天会拿到不完整的一天，这是预期行为，publish 会裁掉末尾尚未到来的空断面。
 
 ### 空 token ≠ 错误
 
