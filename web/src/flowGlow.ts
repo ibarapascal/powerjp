@@ -209,6 +209,8 @@ type WithRaf = mapboxgl.Map & {
   __flowHoldFrom?: number | null
   /** 停止していた合計時間。位相はこれを差し引いた時刻から出す */
   __flowSkew?: number
+  /** style 更新失敗時は一度だけ警告し、エラー自体で主スレッドを埋めない */
+  __flowFrameWarned?: boolean
 }
 
 /**
@@ -228,7 +230,7 @@ export function holdFlowAnimation(m: mapboxgl.Map, ms = 300) {
 
 export function startFlowAnimation(m: mapboxgl.Map) {
   const mm = m as WithRaf
-  if (mm.__flowRaf) return                 // 同じ map に二重に張らない
+  if (mm.__flowRaf != null) return         // 同じ map に二重に張らない
   let lastIdx = -1
   const tick = () => {
     if (!mm.getLayer || !mm.getLayer(GLOW_TIERS[0].id)) {
@@ -262,9 +264,17 @@ export function startFlowAnimation(m: mapboxgl.Map) {
           const k = t.dir > 0 ? idx % FRAMES : (FRAMES - (idx % FRAMES)) % FRAMES
           if (mm.getLayer(t.id)) mm.setPaintProperty(t.id, 'line-dasharray', t.seq[k])
         }
-      } catch {
-        mm.__flowRaf = null                // map が破棄済みなら静かに止める
-        return
+        mm.__flowFrameWarned = false
+      } catch (err) {
+        // Windows/ANGLE では、スライダーの style 更新と同じフレームに
+        // 重なると Mapbox が一時的に style setter を拒否することがある。
+        // ここで RAF 自体を捨てると、以後ずっと光が止まるので、このフレーム
+        // だけ捨てて次のフレームで再試行する。
+        lastIdx = -1
+        if (!mm.__flowFrameWarned) {
+          console.warn('[powerjp] 流光フレームをスキップ:', err)
+          mm.__flowFrameWarned = true
+        }
       }
     }
     mm.__flowRaf = requestAnimationFrame(tick)
@@ -274,6 +284,7 @@ export function startFlowAnimation(m: mapboxgl.Map) {
 
 export function stopFlowAnimation(m: mapboxgl.Map) {
   const mm = m as WithRaf
-  if (mm.__flowRaf) cancelAnimationFrame(mm.__flowRaf)
+  if (mm.__flowRaf != null) cancelAnimationFrame(mm.__flowRaf)
   mm.__flowRaf = null
+  mm.__flowFrameWarned = false
 }

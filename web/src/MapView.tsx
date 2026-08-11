@@ -42,6 +42,10 @@ type Props = {
 // 「まず何が見えるか」が伝わる縮尺で開く。全国は引けば見える。
 const INITIAL_CENTER: [number, number] = [139.75, 35.75]   // 東京
 const INITIAL_ZOOM = 8.2
+// flow は 10 層 × filter/color を同時に更新するため、地図側だけ約 30fps に
+// 制限する。時間軸と機組の React 表示は入力どおり更新し、地図は常に最新コマへ
+// 追いつく。30fps は 30 分刻みの比較操作には十分で、style diff の滞留を半減できる。
+const MIN_FLOW_SLOT_INTERVAL_MS = 32
 
 export function MapView({
   token, enabled, onPick, onLoadingChange, onCounts, slotIdx, slotLen,
@@ -53,6 +57,11 @@ export function MapView({
   /** syncLayers は非同期なので、レイヤー生成時に最新のコマを読めるよう ref で持つ */
   const slot = useRef(slotIdx)
   slot.current = slotIdx
+  /** ドラッグ中の連続イベントを 1 フレーム 1 回の地図更新へ畳み込む */
+  const pendingSlot = useRef(-1)
+  const slotUpdateRaf = useRef<number | null>(null)
+  const appliedSlot = useRef(-1)
+  const lastFlowSlotUpdateAt = useRef(0)
   /** 既に fetch 済みの layer id。再取得を避けるため消さない */
   const loaded = useRef<Set<string>>(new Set())
   const pending = useRef<Set<string>>(new Set())
@@ -118,10 +127,14 @@ export function MapView({
       })
       ready.current = true
       syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
-                 slot.current, slotLen, manifest, fetchedAt)
+                 slot, slotLen, manifest, fetchedAt)
     })
     map.current = m
     return () => {
+      if (slotUpdateRaf.current != null) {
+        cancelAnimationFrame(slotUpdateRaf.current)
+        slotUpdateRaf.current = null
+      }
       stopFlowAnimation(m)
       m.remove()
       map.current = null
@@ -137,8 +150,8 @@ export function MapView({
     const m = map.current
     if (!m || !ready.current) return
     syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
-               slotIdx, slotLen, manifest, fetchedAt)
-  }, [enabled, onLoadingChange, onPick, onCounts, slotIdx, slotLen, manifest])
+               slot, slotLen, manifest, fetchedAt)
+  }, [enabled, onLoadingChange, onPick, onCounts, slotLen, manifest])
 
   // ── 配信物の更新に追従（30 分ごとの再配信・static の差し替え）──
   //
@@ -181,33 +194,58 @@ export function MapView({
   // ⚠️ ここで `setData` を呼んではいけない。1.5MB の GeoJSON を再パースして
   //    タイルを作り直すので、スライダーを引くと固まる。
   //    `setFilter` / `setPaintProperty` は幾何に触らないので軽い。
+  //    ただし Chrome の input イベントは同一フレームに複数届くことがある。
+  //    ここで毎回 10 層 × 2 プロパティを書き換えると、Mapbox の style diff が
+  //    滞留して Windows/ANGLE で特に詰まりやすいので、最新コマだけ描く。
   useEffect(() => {
-    const m = map.current
-    if (!m || !ready.current) return
-    if (slotIdx < 0) return
-    // ★ コマを動かしている間は光を流さない。色と向きだけを変える。
-    //   手が止まって 300ms で自然に再開する（`holdFlowAnimation` 参照）
-    holdFlowAnimation(m, 300)
-    for (const t of GLOW_TIERS) {
-      if (!m.getLayer(t.id)) continue
-      try {
-        m.setFilter(t.id, glowFilter(t, slotIdx) as never)
-        m.setPaintProperty(t.id, 'line-color', utilColor(slotIdx) as never)
-      } catch (err) {
-        console.error(`[powerjp] ${t.id} のコマ更新に失敗:`, err)
+    pendingSlot.current = slotIdx
+    if (slotIdx < 0 || slotUpdateRaf.current != null) return
+
+    const applyPendingSlot = () => {
+      slotUpdateRaf.current = null
+      const m = map.current
+      const idx = pendingSlot.current
+      if (!m || !ready.current || idx < 0 || idx === appliedSlot.current) return
+
+      const flowOn = enabled.has('flow_lines')
+      const now = performance.now()
+      const wait = MIN_FLOW_SLOT_INTERVAL_MS - (now - lastFlowSlotUpdateAt.current)
+      if (flowOn && wait > 0) {
+        slotUpdateRaf.current = requestAnimationFrame(applyPendingSlot)
+        return
+      }
+      appliedSlot.current = idx
+
+      if (flowOn) {
+        lastFlowSlotUpdateAt.current = now
+        // ★ コマを動かしている間は光を流さない。色と向きだけを変える。
+        //   手が止まって 300ms で自然に再開する（`holdFlowAnimation` 参照）
+        holdFlowAnimation(m, 300)
+        const color = utilColor(idx) as never
+        for (const t of GLOW_TIERS) {
+          if (!m.getLayer(t.id)) continue
+          try {
+            m.setFilter(t.id, glowFilter(t, idx) as never)
+            m.setPaintProperty(t.id, 'line-color', color)
+          } catch (err) {
+            console.error(`[powerjp] ${t.id} のコマ更新に失敗:`, err)
+          }
+        }
+      }
+
+      // 機組の扇形も同じコマへ。潮流と別の時刻を映すと嘘になる
+      if (enabled.has('plants') && m.getLayer('plants')) {
+        try {
+          // ⚠️ 欠測コマも**描く**（円環だけ・破線）。隠すと「発電所が無い」に
+          //    見えてしまう。区別は `pieIcons` の破線が担う
+          m.setLayoutProperty('plants', 'icon-image', pieIconExpr(idx) as never)
+        } catch (err) {
+          console.error('[powerjp] 扇形のコマ更新に失敗:', err)
+        }
       }
     }
-    // 機組の扇形も同じコマへ。潮流と別の時刻を映すと嘘になる
-    if (m.getLayer('plants')) {
-      try {
-        // ⚠️ 欠測コマも**描く**（円環だけ・破線）。隠すと「発電所が無い」に
-        //    見えてしまう。区別は `pieIcons` の破線が担う
-        m.setLayoutProperty('plants', 'icon-image', pieIconExpr(slotIdx) as never)
-      } catch (err) {
-        console.error('[powerjp] 扇形のコマ更新に失敗:', err)
-      }
-    }
-  }, [slotIdx])
+    slotUpdateRaf.current = requestAnimationFrame(applyPendingSlot)
+  }, [slotIdx, enabled])
 
   return <div ref={ref} className="map" />
 }
@@ -282,7 +320,7 @@ async function syncLayers(
   onLoadingChange: (id: string, busy: boolean) => void,
   onPick: (f: PickedFeature | null) => void,
   onCounts: (c: Record<string, number>) => void,
-  slotIdx: number,
+  slot: React.MutableRefObject<number>,
   slotLen: number,
   /** 取得時点の mtime を控えるため。更新判定の基準になる */
   manifest: Manifest | null,
@@ -333,8 +371,9 @@ async function syncLayers(
           } as never)
           // 扇形は宣言側の静的な `load` ではなく**今のコマ**で描く。
           // ここで上書きしないと、初回だけ最新コマ固定になる
-          if (def.id === 'plants' && slotIdx >= 0) {
-            m.setLayoutProperty(def.id, 'icon-image', pieIconExpr(slotIdx) as never)
+          const currentSlot = slot.current
+          if (def.id === 'plants' && currentSlot >= 0) {
+            m.setLayoutProperty(def.id, 'icon-image', pieIconExpr(currentSlot) as never)
           }
           m.on('click', def.id, (e) => {
             const f = e.features?.[0]
@@ -384,7 +423,8 @@ async function syncLayers(
   //    式の評価が落ち、10 レイヤーぜんぶ addLayer に失敗する。
   //    `flow_stamps.json` は非同期に読むので、style.load の時点では
   //    まだ届いていないことがある（このパスは実際に通る）。
-  if (slotIdx >= 0 && m.getLayer('flow_lines') && !m.getLayer(GLOW_TIERS[0].id)) {
+  const currentSlot = slot.current
+  if (currentSlot >= 0 && m.getLayer('flow_lines') && !m.getLayer(GLOW_TIERS[0].id)) {
     for (const t of GLOW_TIERS) {
       try {
         m.addLayer({
@@ -396,9 +436,9 @@ async function syncLayers(
           source: 'flow_lines.geojson',
           // ★ 電圧帯 **かつ** そのコマの潮流の向きで絞る。
           //   向きごとにレイヤーが分かれている理由は flowGlow.ts の注記参照。
-          filter: glowFilter(t, slotIdx) as never,
+          filter: glowFilter(t, currentSlot) as never,
           paint: {
-            'line-color': utilColor(slotIdx) as never,
+            'line-color': utilColor(currentSlot) as never,
             // 幅は定数（zoom 補間のみ）。送電線の同電圧帯と同じ値
             'line-width': ['interpolate', ['linear'], ['zoom'], 4, t.w4, 11, t.w11],
             'line-opacity': 1,
@@ -409,7 +449,13 @@ async function syncLayers(
         console.error(`[powerjp] ${t.id} の追加に失敗:`, err)
       }
     }
+  }
+
+  // OFF にした flow の RAF を残さない。再び ON にしたときはここで再開する。
+  if (enabled.has('flow_lines') && m.getLayer(GLOW_TIERS[0].id)) {
     startFlowAnimation(m)
+  } else if (!enabled.has('flow_lines')) {
+    stopFlowAnimation(m)
   }
 
   // 重ね順を layers.ts の order どおりに再構成する。
