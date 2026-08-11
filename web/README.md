@@ -29,6 +29,11 @@ Preview deployments use a separate Pages URL; keep the production canonical URL 
 `index.html`, `public/`, `AI.md`, and the sitemap. Preview deployments should be
 protected with Cloudflare Access and are expected to remain non-indexed.
 
+Frontend-only changes are released by building `web/` and deploying `web/dist`
+to Cloudflare Pages; they do not require the private compute machine or a
+Dagster restart. The complete production command and post-deploy smoke checks live in
+[`docs/OPERATIONS.md`](../docs/OPERATIONS.md).
+
 ## データはどこから来るか
 
 ```

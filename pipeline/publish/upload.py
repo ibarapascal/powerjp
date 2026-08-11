@@ -9,7 +9,7 @@
 
 前端只通过 manifest 发现哈希对象名，因此不会读到「新 manifest + 旧文件」
 或「旧 manifest + 被覆盖了一半的文件」这种组合。脚本只使用单线程、64MiB
-multipart threshold，避免在 私有计算节点 上为 20MB 级静态文件开额外并发和内存。
+multipart threshold，避免在私有计算节点上为 20MB 级静态文件开额外并发和内存。
 
 用法：
 
@@ -19,7 +19,7 @@ multipart threshold，避免在 私有计算节点 上为 20MB 级静态文件�
 
 ``dynamic`` 第一次发布前必须先成功发布过 ``all``，因为它需要保留 R2 上
 现有的 static manifest。非 dry-run 默认会清理旧哈希对象；保留 grace window
-是为了让刚好拿着上一版 manifest 的浏览器完成读取。私有计算节点 上的 raw 历史不受影响。
+是为了让刚好拿着上一版 manifest 的浏览器完成读取。私有计算节点上的 raw 历史不受影响。
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def _publish_dir() -> Path:
 
 @contextmanager
 def _upload_lock():
-    """同一台 私有计算节点 上禁止两个 uploader 同时更新同一个 manifest。"""
+    """同一台私有计算节点上禁止两个 uploader 同时更新同一个 manifest。"""
     path = paths.storage() / ".r2-upload.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:

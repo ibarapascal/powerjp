@@ -155,13 +155,26 @@ powerjp/
 ```bash
 uv sync --extra orchestration                    # 环境（Python 固定 3.12.x）
 uv run python -m pipeline.sources.{name}.ingest  # 单个源，脱离 Dagster 也能跑
-uv run dagster dev -m orchestration.definitions -h 0.0.0.0 -p 3001
+uv run dagster dev -m orchestration.definitions -h 127.0.0.1 -p 3001
 ```
 
 ⚠️ `DAGSTER_HOME` 必须设成 repo 下的 `dagster_home/`，否则每次用临时目录、历史丢失。
 
 > 端口与机器分工等**本地部署的选择**记在 `CLAUDE.local.md`（不进 git）——
 > 那是我们这套环境的情况，不是项目本身的约束。单机也能跑完整流程。
+
+### 冷启动与线上同步
+
+代码仓库是技术代码与文档的 SSOT；私有计算节点只是带有 raw 历史和运行环境的运行镜像，
+不能把它当成第二个代码分支。冷启动或接手任务时，先读 `docs/OPERATIONS.md` 的
+change routing / cold-start sequence，再读本地私有运维记录（不在 repo 内），
+最后读本次涉及的数据源 `INGEST.md` 或 `web/` 文档。
+
+前端改动只需要构建并部署 Cloudflare Pages；数据/API 改动需要把代码同步到私有计算节点，按
+`ingest → structured/publish → R2 manifest` 的最小范围重跑；`orchestration/` 或 schedule
+改动才重启 `com.powerjp.dagster`。这里所说的“API”是 R2 的静态 manifest + hash object
+契约，没有需要对公网重启的后端服务。完整的分流表、验收和安全边界以
+`docs/OPERATIONS.md` 为准。
 
 ## ⛔ pipeline 是可重跑的规则，不是一次性处理
 
@@ -371,6 +384,8 @@ CDN 传一次就缓存住；Mapbox 渲染三万多个顶点毫无压力。
 | 想了解 | 读 |
 |---|---|
 | **还有什么没做** | **`TODO.md`** ← 待办的 SSOT |
+| **冷启动、前端/API 发布、R2、回滚、验收** | **`docs/OPERATIONS.md`** |
+| **私有计算节点路径、LaunchAgent、代码同步、资源闸门** | 本地私有运维记录（不在 repo 内） |
 | 某数据源怎么拿、要什么凭据、有什么坑 | `pipeline/sources/{name}/INGEST.md` |
 | 数据源出典与许可 | `ATTRIBUTION.md` |
 | 踩过的坑 | `LESSONS.md` |

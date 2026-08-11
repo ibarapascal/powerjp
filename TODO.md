@@ -11,7 +11,7 @@
 
 - [x] 生产前端：`https://powerjp.mkhr.co.jp/` 已上线并完成首页、SEO/GEO 静态入口、R2 manifest 与 CORS 验收。
 - [x] 数据配信：`https://data.powerjp.mkhr.co.jp/powerjp/v1`，R2 使用内容 hash、manifest 最后写入，旧 dynamic 版本保留 6 小时后清理。
-- [x] 私有计算节点 常驻：Dagster 保持 dev 环境裸跑；独立 freshness 检查每 30 分钟运行。具体 LaunchAgent 与资源安全规则见 `docs/OPERATIONS.md` 及私有运维记录。
+- [x] 私有计算节点常驻：Dagster 保持 dev 环境裸跑；独立 freshness 检查每 30 分钟运行。具体 LaunchAgent 与资源安全规则见 `docs/OPERATIONS.md` 及私有运维记录。
 - [ ] public repository：仍未公开；按约定另起 repo，先完成历史与敏感信息审计。
 - [!] `area_jukyu` 的十社再分发许可仍未闭合。项目负责人明确选择不把它作为本次前端上线阻塞项；这不是取得许可或法律结论，见 `ATTRIBUTION.md`。
 

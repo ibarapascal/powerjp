@@ -2,7 +2,7 @@
 
 这个检查故意不依赖 Dagster：Dagster 本身停掉时，告警仍然要能运行。
 默认只看 ``storage/publish/manifest.json`` 的 mtime，不扫描 1.3GB raw，避免
-告警任务反而给 私有计算节点 增加 I/O 压力。
+告警任务反而给私有计算节点增加 I/O 压力。
 
 配置：
 

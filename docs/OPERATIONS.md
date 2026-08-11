@@ -23,6 +23,59 @@ Cloudflare Pages → powerjp.mkhr.co.jp
 - Dagster is intentionally a private development process, not a public service
   and not a containerized production API.
 
+## Source of truth and change routing
+
+There are four different “sources of truth”; keeping them separate prevents a
+frontend change from being mistaken for a data release:
+
+- **Code and technical decisions**: the Git working tree and its pushed branch.
+- **Raw history**: the private compute machine's `storage/raw/`; it is the
+  irreplaceable input and is never uploaded to R2.
+- **Local publish output**: rebuildable from raw/structured data. It is the
+  input to the uploader, not a second hand-edited data source.
+- **Public snapshot**: R2's `manifest.json` and the hash-named objects it points
+  to. Never edit an object or manifest by hand.
+
+There is no long-running public application API. The public data API is the
+static contract `manifest.json` → hash-named JSON/GeoJSON objects under the
+configured prefix. A change to that contract must update the producer and the
+frontend together.
+
+| Change | Local check | Production action |
+|---|---|---|
+| `web/**`, `index.html`, `web/public/**` | `cd web && pnpm build` | Deploy the new Pages build; no sync to private compute |
+| `pipeline/sources/**` | CLI `--dry-run` or a small date/window | Sync code to the private compute checkout; run the smallest ingest → publish → R2 scope, or let the next schedule do it |
+| `pipeline/structured/**` or `geojson.py` | Run the affected deterministic step and inspect counts | Sync to the private compute checkout, rebuild the affected publish layer, then upload `dynamic` or `all` as appropriate |
+| `pipeline/publish/spec.py` or `upload.py` | `--dry-run` and manifest/object review | Treat as a publication-contract change; coordinate producer and frontend, then publish `all` when the object set changes |
+| `orchestration/**` or schedule config | `py_compile` plus a small Dagster run | Sync to the private compute checkout and restart only the owned Dagster agent; verify both schedules are `RUNNING` |
+| R2/Pages env, CORS, DNS, Mapbox restrictions | Provider-side read-only check | Change in Cloudflare/Mapbox settings; never commit the value |
+
+The private compute checkout is a runtime mirror of the code source, not a
+second Git history. Code is synchronized explicitly while `storage/`, `.env`,
+`.venv/`, `dagster_home/`, `web/node_modules/`, `web/dist/`, and logs remain
+machine-local. The exact paths, resource gate, and LaunchAgent commands are in
+the ignored private operations notes referenced by `CLAUDE.local.md`.
+
+## Cold-start sequence
+
+When resuming this project after context loss, read in this order:
+
+1. `CLAUDE.md` for architecture and hard constraints.
+2. `TODO.md` for the current backlog and release state.
+3. This file for the public deployment/data-release procedure.
+4. `CLAUDE.local.md` and the private operations record for machine paths,
+   credentials locations, ports, and the private compute safety gate.
+5. `DEPLOY.local.md` for the current private release checklist and the exact
+   code-sync/LaunchAgent procedure.
+6. The relevant source `INGEST.md`, `web/README.md`, or
+   `web/REQUIREMENTS.md` before changing that area.
+
+The minimum safe handoff is: identify the changed layer, validate locally, make
+the working tree clean and push the release commit, sync only code when the
+private compute checkout is involved, restart only the owned Dagster agent when
+orchestration changed, publish through `pipeline.publish.upload`, and run the
+production smoke checks below. Do not “fix” production by editing R2 directly.
+
 ## Refresh contract
 
 The Dagster `refresh_30min` schedule updates the dynamic publish layer every 30
@@ -73,6 +126,11 @@ npx wrangler pages deploy web/dist \
   --branch main
 ```
 
+This is a frontend-only release. It does not refresh R2 data and does not
+require restarting Dagster. If both frontend and data contract changed, publish
+the compatible data snapshot and deploy the frontend as one coordinated release;
+the R2 manifest remains the atomic switch for data objects.
+
 The custom DNS record is a CNAME from `powerjp.mkhr.co.jp` to the Pages project
 domain and should use Cloudflare **Proxied / orange cloud** status. The data
 custom domain is separate and must keep the R2 CORS allow-list aligned with the
@@ -83,6 +141,8 @@ production and staging page origins.
 ```bash
 curl -fsS -o /dev/null -w '%{http_code}\n' https://powerjp.mkhr.co.jp/
 curl -fsS https://data.powerjp.mkhr.co.jp/powerjp/v1/manifest.json | jq 'keys'
+curl -fsS https://data.powerjp.mkhr.co.jp/powerjp/v1/manifest.json \
+  | jq '[.static[], .dynamic[]] | map(.file)'
 curl -fsSI -H 'Origin: https://powerjp.mkhr.co.jp' \
   https://data.powerjp.mkhr.co.jp/powerjp/v1/manifest.json
 ```
