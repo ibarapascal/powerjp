@@ -1,0 +1,34 @@
+# powerjp
+
+> Japan power-grid data and observed-flow map.
+
+powerjp is a reproducible open-data pipeline and static web map for exploring Japan's power-system topology, substations, generation facilities, and observed transmission-line power flow.
+
+## Primary links
+
+- Website: https://powerjp.mkhr.co.jp/
+- Machine-readable description: https://powerjp.mkhr.co.jp/.well-known/ai.json
+- Detailed project summary: https://powerjp.mkhr.co.jp/llms-full.txt
+- Attribution and source terms: https://powerjp.mkhr.co.jp/ai.html
+
+## Capabilities
+
+- Map transmission-line and substation geometry.
+- Inspect generation sites and unit-output layers.
+- View observed trunk-line flow at 30-minute intervals.
+- Inspect source attribution and published artifact metadata.
+
+## Scope
+
+- Geographic scope: Japan.
+- Delivery: static GeoJSON and JSON artifacts through a CDN.
+- Flow and unit-output resolution: 30 minutes where supplied by the source.
+- Area supply-demand data: hourly upstream data used for derived estimates.
+
+## Important distinction
+
+powerjp visualizes observed flow. It is not an operational control system and does not claim that every displayed line is a newly calculated physical power-flow solution.
+
+## Sources and licensing
+
+Sources include All-Japan-Grid, OpenStreetMap, OCCTO public power-system data, MLIT National Land Numerical Information, and Global Energy Monitor. Code is MIT licensed. Data artifacts have source-specific conditions; ODbL applies to artifacts derived from All-Japan-Grid/OpenStreetMap. Read the in-application attribution before redistributing data.

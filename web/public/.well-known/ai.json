@@ -1,0 +1,52 @@
+{
+  "$schema": "https://powerjp.mkhr.co.jp/.well-known/ai.json",
+  "name": "powerjp",
+  "url": "https://powerjp.mkhr.co.jp/",
+  "alternate_names": ["powerjp Japan power grid map"],
+  "language": ["ja", "en"],
+  "entity_type": "open_data_visualization",
+  "description": "powerjp is a static web map and reproducible pipeline for exploring Japan's power-grid topology, facilities, and observed transmission-line power flow from public data.",
+  "capabilities": [
+    "Explore transmission-line and substation geometry on a map",
+    "Inspect generation sites and unit output layers",
+    "View observed trunk-line power flow at 30-minute intervals",
+    "Compare layers and inspect source attribution in the interface"
+  ],
+  "data_coverage": {
+    "country": "Japan",
+    "spatial_extent": "Japanese power-system network and generation facilities represented by the published source data",
+    "flow_temporal_resolution": "30 minutes",
+    "unit_output_temporal_resolution": "30 minutes",
+    "area_supply_demand_temporal_resolution": "hourly upstream data used for derived estimates",
+    "delivery_format": ["GeoJSON", "JSON"]
+  },
+  "methodology": [
+    "Ingest public source data into a reproducible local pipeline",
+    "Align source identifiers and coordinates",
+    "Publish static, versioned artifacts with a manifest",
+    "Render the artifacts in a React, Vite, and Mapbox GL JS web map"
+  ],
+  "sources": [
+    "All-Japan-Grid",
+    "OpenStreetMap",
+    "OCCTO public power-system data",
+    "MLIT National Land Numerical Information",
+    "Global Energy Monitor"
+  ],
+  "limitations": [
+    "This project visualizes observed flow; it is not an operational control system.",
+    "Not every published flow record has a recoverable physical line geometry.",
+    "Area-level demand is not building-level demand.",
+    "Published artifacts carry source-specific attribution and licensing conditions."
+  ],
+  "distribution": {
+    "frontend": "Cloudflare Pages",
+    "data": "Cloudflare R2 or an R2-compatible CDN",
+    "machine_readable_manifest": "manifest.json"
+  },
+  "license": {
+    "code": "MIT",
+    "published_artifacts": "See the in-application attribution and source terms; ODbL applies to artifacts derived from All-Japan-Grid/OpenStreetMap."
+  },
+  "last_reviewed": "2026-08-11"
+}

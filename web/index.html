@@ -3,7 +3,114 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>powerjp — 日本の電力系統</title>
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="公開データから日本の送電網、変電所、発電所、実測潮流を地図上で確認できる電力系統の可視化。" />
+    <meta name="keywords" content="日本 電力系統 送電網 潮流 OCCTO 発電所 変電所 オープンデータ GIS power grid Japan" />
+    <meta name="author" content="powerjp contributors" />
+    <meta name="creator" content="powerjp contributors" />
+    <meta name="robots" content="index, follow" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="content-language" content="ja" />
+
+    <!-- 全国を扱うプロジェクトなので、特定都市の座標は付与しない。 -->
+    <meta name="geo.region" content="JP" />
+    <meta name="geo.placename" content="Japan" />
+
+    <title>powerjp — 日本の電力系統を観測する地図</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#dfe6ef" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="canonical" href="https://powerjp.mkhr.co.jp/" />
+    <link rel="alternate" type="application/json" href="/.well-known/ai.json" title="powerjp machine-readable description" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="powerjp" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:country-name" content="Japan" />
+    <meta property="og:title" content="powerjp — 日本の電力系統を観測する地図" />
+    <meta property="og:description" content="公開データから日本の送電網、変電所、発電所、実測潮流を地図上で確認できる電力系統の可視化。" />
+    <meta property="og:url" content="https://powerjp.mkhr.co.jp/" />
+    <meta property="og:image" content="https://powerjp.mkhr.co.jp/og-image.svg" />
+    <meta property="og:image:secure_url" content="https://powerjp.mkhr.co.jp/og-image.svg" />
+    <meta property="og:image:type" content="image/svg+xml" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="powerjp — 日本の電力系統を観測する地図" />
+
+    <!-- Twitter / X Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="powerjp — 日本の電力系統を観測する地図" />
+    <meta name="twitter:description" content="公開データから日本の送電網、変電所、発電所、実測潮流を地図上で確認できる電力系統の可視化。" />
+    <meta name="twitter:image" content="https://powerjp.mkhr.co.jp/og-image.svg" />
+    <meta name="twitter:image:alt" content="powerjp — 日本の電力系統を観測する地図" />
+
+    <!-- The site URL is provisional until the production domain is selected. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://powerjp.mkhr.co.jp/#website",
+            "url": "https://powerjp.mkhr.co.jp/",
+            "name": "powerjp",
+            "description": "公開データから日本の電力系統を可視化するプロジェクト。",
+            "inLanguage": "ja-JP",
+            "publisher": { "@id": "https://powerjp.mkhr.co.jp/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://powerjp.mkhr.co.jp/#organization",
+            "name": "powerjp contributors",
+            "url": "https://powerjp.mkhr.co.jp/"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://powerjp.mkhr.co.jp/#application",
+            "url": "https://powerjp.mkhr.co.jp/",
+            "name": "powerjp",
+            "description": "日本の送電網、変電所、発電所、観測された送電線潮流を地図上で確認する Web アプリケーション。",
+            "applicationCategory": "DataVisualization",
+            "operatingSystem": "Web",
+            "isAccessibleForFree": true,
+            "areaServed": {
+              "@type": "Country",
+              "name": "Japan",
+              "identifier": "JP"
+            },
+            "featureList": [
+              "日本の電力系統トポロジーの地図表示",
+              "30 分単位の観測潮流の時間表示",
+              "発電所・変電所・送電線のレイヤー切替",
+              "公開データの出典とライセンス表示"
+            ]
+          },
+          {
+            "@type": "Dataset",
+            "@id": "https://powerjp.mkhr.co.jp/#dataset",
+            "name": "powerjp published power-grid artifacts",
+            "description": "日本の電力系統に関する公開データを整合・加工して配信する GeoJSON と時間データ。",
+            "url": "https://powerjp.mkhr.co.jp/",
+            "inLanguage": "ja-JP",
+            "spatialCoverage": {
+              "@type": "Place",
+              "name": "Japan"
+            },
+            "isAccessibleForFree": true,
+            "license": "https://opendatacommons.org/licenses/odbl/1-0/",
+            "isBasedOn": [
+              "All-Japan-Grid",
+              "OpenStreetMap",
+              "OCCTO public power-system data",
+              "MLIT National Land Numerical Information",
+              "Global Energy Monitor"
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -11,7 +11,7 @@ import { FeaturePanel } from './FeaturePanel'
 import { TimeSlider } from './TimeSlider'
 import { SlotChart } from './SlotChart'
 import { parseSlots } from './slotSeries'
-import { useManifest, dataBase } from './manifest'
+import { useManifest, dataUrl } from './manifest'
 import { LAYERS } from './layers'
 import type { PickedFeature } from './types'
 
@@ -36,7 +36,7 @@ export default function App() {
   // ⚠️ `version` に追従させる —— 30 分ごとに窓が 1 コマずれるので、
   //    ここを取り直さないと `slots_mw` と下標が食い違う（値が静かにずれる）。
   useEffect(() => {
-    fetch(`${dataBase()}/flow_stamps.json`, { cache: 'no-cache' })
+    fetch(dataUrl('flow_stamps.json', manifest), { cache: 'no-cache' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: { stamps?: string[]; unit_last_idx?: number }) => {
         const s = d.stamps ?? []
@@ -56,7 +56,7 @@ export default function App() {
         })
       })
       .catch((err) => console.error('[powerjp] flow_stamps.json の読込に失敗:', err))
-  }, [version])
+  }, [manifest, version])
 
   // ★ 選んだ要素の時系列。潮流なら潮流、機組なら出力。
   //   ⚠️ 変電所のように時系列を持たない要素では出さない

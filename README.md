@@ -2,7 +2,9 @@
 
 Open data pipeline and visualization for Japan's power grid — generation, network topology, power flow, and area supply-demand.
 
-> **Status: early development.** Nothing works yet. This repository is currently private and the structure is still moving.
+> **Status: live frontend, private repository.** The production map is online and
+> the refresh pipeline is running on a private worker. The source repository is
+> intentionally still private while the public-release checklist is completed.
 
 ## What this is
 
@@ -39,6 +41,10 @@ Process  →  structured → derived → published      fully deterministic, rep
 Everything downstream of `storage/raw/` is deterministic and can be replayed from scratch. Credentials, logins, and manual downloads all stay upstream of that line.
 
 Orchestrated with [Dagster](https://dagster.io/). Geometry in PostGIS, time series in Parquet, vector tiles built with tippecanoe, served from Cloudflare R2. Frontend is React + Vite + Mapbox GL JS.
+
+For deployment, monitoring, refresh, rollback, and secret-handling procedures, see
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md). The 2026-08-11 production release is
+recorded in [`docs/releases/2026-08-11-production.md`](docs/releases/2026-08-11-production.md).
 
 ## Data sources and licensing
 

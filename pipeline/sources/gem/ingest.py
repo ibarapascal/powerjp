@@ -115,7 +115,7 @@ def main() -> None:
         by_type=dict(by_type),
         has_coordinates=True,
         columns=len(hdr),
-        licence="Creative Commons Public License（下载时的 license 复选框原文确认）",
+        licence="Creative Commons Attribution 4.0 International (CC BY 4.0)",
         source_url="https://globalenergymonitor.org/projects/global-integrated-power-tracker/",
     )
 

@@ -24,6 +24,7 @@ OCCTO の時刻は日本時間。`execution_timezone` を省くと UTC 基準に
 
 from dagster import (
     AssetSelection, RunConfig, ScheduleDefinition, define_asset_job,
+    DefaultScheduleStatus,
 )
 
 from pipeline.publish import spec
@@ -39,7 +40,7 @@ assert DYNAMIC in spec.LAYER_FILES, f"{DYNAMIC} は spec に無い層"
 # ── 30 分更新 ────────────────────────────────────────────────
 # 直近 2 日を force で取り直し、publish まで通す。
 _REFRESH = AssetSelection.assets(
-    "raw_occto_flow", "raw_occto_unit", "publish_geojson",
+    "raw_occto_flow", "raw_occto_unit", "publish_geojson", "publish_r2",
 )
 
 refresh_job = define_asset_job(
@@ -52,6 +53,7 @@ refresh_job = define_asset_job(
         "raw_occto_unit": IngestWindow(days=2, force=True),
         # ★ static（送電線 19.6MB・変電所）は 30 分では変わらない。作り直さない
         "publish_geojson": PublishScope(only=DYNAMIC),
+        "publish_r2": PublishScope(only=DYNAMIC),
     }),
 )
 
@@ -62,6 +64,7 @@ refresh_schedule = ScheduleDefinition(
     job=refresh_job,
     cron_schedule="5,35 * * * *",
     execution_timezone=TZ,
+    default_status=DefaultScheduleStatus.RUNNING,
 )
 
 # ── 日次の穴埋め ──────────────────────────────────────────────
@@ -74,6 +77,7 @@ backfill_job = define_asset_job(
         "raw_occto_flow": IngestWindow(days=7, force=False),
         "raw_occto_unit": IngestWindow(days=7, force=False),
         "publish_geojson": PublishScope(only=DYNAMIC),
+        "publish_r2": PublishScope(only=DYNAMIC),
     }),
 )
 
@@ -83,6 +87,7 @@ backfill_schedule = ScheduleDefinition(
     job=backfill_job,
     cron_schedule="20 1 * * *",
     execution_timezone=TZ,
+    default_status=DefaultScheduleStatus.RUNNING,
 )
 
 SCHEDULES = [refresh_schedule, backfill_schedule]

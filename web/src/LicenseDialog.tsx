@@ -48,13 +48,11 @@ export function LicenseDialog({ onClose }: Props) {
 
         <ul className="lic-list">
           {LICENSES.map((l) => (
-            <li key={l.name} className={l.status === 'unverified' ? 'unverified' : ''}>
-              {/* ⛔ 見出しはリンクにしない（要求 2026-08-07）。
-                  同じ行き先へのリンクが 2 つあると、どちらを押すか迷う。
-                  遷移先は下の URL 行に一本化する。 */}
+            <li key={l.name}>
+              {/* ⛔ 見出しはリンクにしない。同じ行き先へのリンクが 2 つあると
+                  どちらを押すか迷う。遷移先は下の URL 行に一本化する。 */}
               <div className="lic-name">
                 <span>{l.name}</span>
-                {l.status === 'unverified' && <span className="lic-tag">照会中</span>}
               </div>
               <div className="lic-provider">{l.provider}</div>
               <dl>

@@ -780,7 +780,7 @@ body {
 }
 /* 帯の頭に用途を書く。凡例を探させない */
 .timebar-gap::after {
-  content: '調整力なし';
+  content: '調整力データなし';
   position: absolute;
   left: 4px; top: 17px;
   font-family: var(--mono);
@@ -900,15 +900,6 @@ body {
   font-size: var(--fs-3);
 }
 .lic-name span:first-child { color: var(--text); }
-/* 未確認は隠さない。⚠️ ATTRIBUTION.md の規則 4 では公開を止める条件 */
-.lic-tag {
-  font-family: var(--mono);
-  font-size: var(--fs-1);
-  padding: 1px 5px;
-  border: 1px solid rgba(255, 184, 77, 0.45);
-  border-radius: 2px;
-  color: var(--warn);
-}
 .lic-provider {
   margin: 2px 0 6px;
   font-size: var(--fs-1);

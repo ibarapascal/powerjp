@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Allow: /.well-known/
+Allow: /ai.html
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# The preview environment is protected separately with Cloudflare Access.
+# This file is for the eventual production host.
+Sitemap: https://powerjp.mkhr.co.jp/sitemap.xml

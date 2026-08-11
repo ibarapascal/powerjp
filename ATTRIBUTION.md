@@ -2,7 +2,7 @@
 
 This project combines public data sources under different licences. This file is the single source of truth for what came from where and what may be redistributed.
 
-**Status of this file: incomplete.** Licence terms marked `TO VERIFY` have not yet been read in full. Each source's terms are recorded at the time of first ingest in `pipeline/sources/{name}/INGEST.md`; this file is the roll-up. **No artifact is published to the CDN before its source row here is resolved.**
+**Status of this file: incomplete.** Licence terms marked `TO VERIFY` have not yet been read in full. Each source's terms are recorded at the time of first ingest in `pipeline/sources/{name}/INGEST.md`; this file is the roll-up. The `area_jukyu` row remains unresolved. The project owner accepted that risk for the 2026-08-11 frontend launch; this is not permission, legal clearance, or a change to the upstream terms. Future additions to the published dataset still require a resolved attribution/licence decision.
 
 ## Sources
 
@@ -10,7 +10,7 @@ This project combines public data sources under different licences. This file is
 |---|---|---|---|---|
 | [All-Japan-Grid](https://github.com/lutelute/All-Japan-Grid) | community project, built on OpenStreetMap | Transmission line corridors, substations, generation sites, with WGS84 coordinates | Data: **ODbL**; code: MIT | Yes, with attribution and share-alike on derived databases |
 | OpenStreetMap | OSM contributors | Upstream of the above | **ODbL** | Yes, with attribution and share-alike |
-| Global Energy Monitor — Global Integrated Power Tracker | Global Energy Monitor | Unit-level generation attributes **with latitude/longitude** (fuel, capacity, status, start year, operator) | **Creative Commons Public License** — confirmed via the download form's licence checkbox | **Likely yes** with attribution; recommended citation: *Global Integrated Power Tracker, Global Energy Monitor, March 2026 release* |
+| Global Energy Monitor — Global Integrated Power Tracker | Global Energy Monitor | Unit-level generation attributes **with latitude/longitude** (fuel, capacity, status, start year, operator) | **CC BY 4.0** | Yes, with attribution; recommended citation: *Global Integrated Power Tracker, Global Energy Monitor, March 2026 release* |
 | エリア需給実績 | the ten general transmission and distribution utilities | Hourly area demand and generation by source type, 2016–present | Per-utility terms of use, not uniform. Kyushu checked: reproduction/quotation/republication without prior consent is prohibited | `TO VERIFY` — but note we publish **derived estimates**, not the source CSVs |
 | 系統情報サービス | OCCTO | Trunk-line power flow by circuit, 30-minute resolution | OCCTO terms of use: free to use **with attribution**; derived/edited content must additionally state that it was modified | **Likely yes** — verify the terms text before publishing |
 | ユニット別発電実績公開システム | OCCTO | **Per-unit** generation output, 30-minute resolution, 2024-03-25 onwards | Same OCCTO terms as above | **Likely yes** — same caveat |
@@ -40,10 +40,8 @@ https://globalenergymonitor.org/creative-commons-license . Redistribution and
 derivative works are permitted with attribution, so it is compatible with the
 ODbL share-alike that applies to our published files.
 ⚠️ The licence is **not** linked from the project page, the download page or the
-tracker page — it was found via the sitemap. An earlier revision of this file
-claimed it was "confirmed via the download form's licence checkbox", which was
-not substantiated at the time; `pipeline/sources/gem/INGEST.md` still says
-`TO VERIFY` and should be updated to match.
+tracker page — it was found via the sitemap. The ingest record now records the
+same CC BY 4.0 conclusion.
 
 **JEPOC (電力土木技術協会).** `jepoc.or.jp/info/sitepolicy.html` states that,
 outside of printing/saving for personal use, reproducing, transmitting,
@@ -63,6 +61,24 @@ we do **not** republish these CSVs. `sites.geojson` carries per-site *estimates*
 computed by apportioning area totals — a derived result, not a copy. The
 attribution wording should make that explicit.
 
+**エリア需給実績 — follow-up check (2026-08-11).** Official pages were checked
+for the remaining operators: [北海道](https://www.hepco.co.jp/network/using/legal.html),
+[東京](https://www.tepco.co.jp/legal/),
+[中部](https://powergrid.chuden.co.jp/denkiyoho/siteinfo.html),
+[中国](https://www.energia.co.jp/nw/guide/index.html), and
+[四国](https://www.yonden.co.jp/terms/) each state, in substance, that use beyond
+private use or reproduction/adaptation/distribution requires permission or is
+not allowed. The [東北 data page](https://setsuden.nw.tohoku-epco.co.jp/realtime_jukyu.html),
+[関西 conditions page](https://www.kansai-td.co.jp/denkiyoho/siteinfo.html), and
+[沖縄 data page](https://www.okiden.co.jp/business-support/service/supply-and-demand/)
+did not provide a clear general redistribution grant on the pages checked.
+This confirms that the ten-company source does not have a uniform open-data
+licence. The project publishes derived estimates rather than source CSVs, but
+that distinction has not been confirmed as sufficient permission; **L3 remains
+unresolved**. The project owner explicitly chose not to block the 2026-08-11
+frontend launch on this issue. This must not be described as permission or
+licence clearance.
+
 ⚠️ Nothing above is legal advice. It records what the published terms say.
 
 ## Rules
@@ -74,7 +90,7 @@ attribution wording should make that explicit.
    ODbL requires granting downstream recipients the right to redistribute; "this
    file is ODbL, except for the rows from source X" is not a coherent offer. Such a
    source must live in its own file under its own terms, or not be published at all.
-4. **`TO VERIFY` blocks publication, not development.** A source may be ingested and explored locally while its terms are still being read; it may not be published to the CDN.
+4. **`TO VERIFY` normally blocks publication, not development.** A source may be ingested and explored locally while its terms are still being read. Any exception requires an explicit owner decision recorded as a launch risk; that exception is not a licence clearance.
 5. **Sources under non-commercial licences are excluded by design.** Demand resolution stops at the area level partly for this reason — see `CLAUDE.md`.
 
 ## Code

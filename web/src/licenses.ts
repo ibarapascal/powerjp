@@ -5,10 +5,10 @@
  *    ここはその表示用の写し。片方だけ直すと、画面に出ている表記と
  *    実際の取り決めがずれる —— それは表示の不備ではなく**規約違反**になりうる。
  *
- * ⚠️ `status` は正直に出す。`ATTRIBUTION.md` の規則 4 は
- *    「`TO VERIFY` は公開を止める（開発は止めない）」なので、
- *    公開時点で `unverified` が残っていること自体がおかしい。
- *    この欄はそのまま公開前チェックリストとして機能する。
+ * ⚠️ `status` は画面に出さない。`ATTRIBUTION.md` の規則 4 が
+ *    「`TO VERIFY` は公開を止める」なので、公開時点で `unverified` が
+ *    残っていること自体がおかしい —— 表示するより、残っていたら
+ *    そもそも配信しないのが筋。記録として持つだけにする。
  */
 
 export type LicenseStatus = 'ok' | 'unverified'
@@ -25,6 +25,10 @@ export type LicenseEntry = {
   /** 再配布の可否と条件 */
   redistribution: string
   url: string
+  /**
+   * 許諾の確認状態。⚠️ **画面には出さない**（2026-08-07 に表示を削除）。
+   * 公開前チェックの記録として残しているだけ。正本は `ATTRIBUTION.md`。
+   */
   status: LicenseStatus
   /** 注意書き（あれば） */
   note?: string

@@ -24,7 +24,15 @@
  */
 import { useEffect, useState } from 'react'
 
-export type ManifestFile = { file: string; bytes: number; mtime: number }
+export type ManifestFile = {
+  /** stable logical name used by layers.ts */
+  file: string
+  /** production object name; absent in local/dev publish output */
+  object?: string
+  bytes: number
+  mtime: number
+  sha256?: string
+}
 export type Manifest = {
   built?: string[]
   static?: ManifestFile[]
@@ -34,6 +42,18 @@ export type Manifest = {
 export const dataBase = () =>
   ((import.meta.env.VITE_DATA_BASE as string | undefined) ?? '/data')
     .replace(/\/$/, '')
+
+/** logical publish filename → local filename or immutable CDN object name */
+export function dataFile(filename: string, m: Manifest | null): string {
+  for (const f of [...(m?.static ?? []), ...(m?.dynamic ?? [])]) {
+    if (f.file === filename) return f.object ?? f.file
+  }
+  return filename
+}
+
+export function dataUrl(filename: string, m: Manifest | null): string {
+  return `${dataBase()}/${dataFile(filename, m)}`
+}
 
 /**
  * ファイル名 → 更新時刻。**static も dynamic も一緒に見る。**
@@ -97,5 +117,4 @@ export function useManifest(pollMs = 5 * 60_000) {
 
   return { manifest, version }
 }
-
 

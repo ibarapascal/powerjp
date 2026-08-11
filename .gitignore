@@ -6,6 +6,10 @@
 *.key
 credentials.json
 .wrangler/
+*.secret
+*.token
+*.credentials
+.envrc
 
 # 本地个人指示・作业用メモ（*.local.md は一切追跡しない）
 CLAUDE.local.md

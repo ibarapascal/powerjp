@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>powerjp — Japan power-grid data and observed flow map</title>
+    <meta name="description" content="Machine-readable project summary for powerjp, an open-data visualization of Japan's power grid and observed transmission-line flow.">
+    <meta name="keywords" content="Japan power grid, power flow, OCCTO, transmission network, GeoJSON, open data, GIS">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://powerjp.mkhr.co.jp/ai.html">
+    <link rel="alternate" type="application/json" href="/.well-known/ai.json">
+  </head>
+  <body>
+    <main>
+      <h1>powerjp — Japan power-grid data and observed flow map</h1>
+      <p><strong>powerjp</strong> is a reproducible pipeline and static web map for exploring Japan's power-system topology, substations, generation facilities, and observed transmission-line power flow.</p>
+
+      <h2>What it provides</h2>
+      <ul>
+        <li>Transmission-line and substation geometry where a source-backed geometry is available.</li>
+        <li>Generation-site and unit-output layers with source and quality metadata.</li>
+        <li>Observed trunk-line power flow at 30-minute resolution.</li>
+        <li>A time-aware GeoJSON map distributed through a CDN.</li>
+      </ul>
+
+      <h2>Geographic and temporal scope</h2>
+      <p>The project covers Japan's power system. Flow and unit-output records use 30-minute observations where the source provides them. Area supply-demand data is hourly upstream data used for derived estimates; it is not republished as source CSV files.</p>
+
+      <h2>Sources</h2>
+      <p>Published artifacts combine or derive from All-Japan-Grid, OpenStreetMap, OCCTO public power-system data, Japan's MLIT National Land Numerical Information, and Global Energy Monitor. The application displays attribution and links to the relevant source terms.</p>
+
+      <h2>Important limitations</h2>
+      <ul>
+        <li>powerjp is an observation and data-visualization project, not an operational control or dispatch system.</li>
+        <li>Observed flow is not a newly calculated AC power-flow solution.</li>
+        <li>Some flow records do not have a source-backed physical geometry and are therefore not drawn as a line.</li>
+        <li>Data artifacts may have source-specific redistribution conditions. Do not treat the code licence as a licence for every data artifact.</li>
+      </ul>
+
+      <h2>Machine-readable references</h2>
+      <ul>
+        <li><a href="/.well-known/ai.json">AI JSON description</a></li>
+        <li><a href="/llms.txt">Short LLM description</a></li>
+        <li><a href="/llms-full.txt">Detailed LLM description</a></li>
+        <li><a href="/sitemap.xml">Sitemap</a></li>
+      </ul>
+    </main>
+  </body>
+</html>

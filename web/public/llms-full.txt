@@ -1,0 +1,65 @@
+# powerjp — detailed project description
+
+## Identity
+
+powerjp is an open-data pipeline and static web map about Japan's electric power system. It joins public source data into inspectable, versioned artifacts and renders them on a Mapbox GL JS map. The project is intended for research, data exploration, and reproducible analysis.
+
+Website: https://powerjp.mkhr.co.jp/
+
+## What is shown
+
+### Network and facilities
+
+- Transmission-line geometry and network topology where the published source data provides a usable, source-backed geometry.
+- Substations and their available attributes.
+- Generation sites and unit-level output layers where coordinates and source matching are available.
+
+### Time-dependent data
+
+- Observed trunk-line power flow at 30-minute resolution.
+- Unit output at 30-minute resolution where OCCTO provides it.
+- Hourly area-level supply-demand data is used upstream for derived estimates. The source CSVs are not presented as a raw-data mirror.
+
+## Geographic scope
+
+The geographic scope is Japan. The project uses a country-level geographic description instead of a fake single-point coordinate because this is a national network dataset, not a business at one address.
+
+## Method
+
+1. Source data is ingested into a local, date-stamped raw-data area.
+2. Identifiers, coordinates, and time windows are aligned in deterministic processing steps.
+3. Static artifacts are written as GeoJSON or JSON.
+4. Artifacts are published with a manifest; content-hashed objects are used for atomic CDN updates.
+5. The web application reads the manifest and renders only the layers selected by the user.
+
+## What the project does not claim
+
+- It is not an operational dispatch, protection, or grid-control tool.
+- Observed flow is not the same as a newly calculated AC power-flow solution.
+- Ten-area demand data cannot support building-level demand estimates.
+- A missing line geometry does not prove that a physical line does not exist.
+- Source-specific licences are not replaced by the MIT licence of the code.
+
+## Sources
+
+- All-Japan-Grid: network and facility topology derived from a community project built on OpenStreetMap.
+- OpenStreetMap: upstream geospatial data for the topology-derived artifacts.
+- OCCTO: public observed power-flow and unit-output data, modified and aligned by the project.
+- MLIT National Land Numerical Information: public facility-coordinate data.
+- Global Energy Monitor: generation-facility attributes and coordinates.
+
+The application exposes attribution links and notes. See the published manifest and attribution view before using an artifact downstream.
+
+## Output formats
+
+- GeoJSON for network and facility layers.
+- JSON for common time stamps and manifest metadata.
+- Static files distributed through Cloudflare R2 or an R2-compatible CDN.
+
+## Licence
+
+The code is MIT licensed. Published artifacts are not automatically covered by that licence. Artifacts derived from All-Japan-Grid/OpenStreetMap carry ODbL obligations, and other inputs may have additional conditions. Consult the source terms and attribution shown by the application.
+
+## Machine-readable description
+
+https://powerjp.mkhr.co.jp/.well-known/ai.json

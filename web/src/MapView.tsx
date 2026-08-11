@@ -18,7 +18,7 @@ import {
   startFlowAnimation, stopFlowAnimation, holdFlowAnimation,
 } from './flowGlow'
 import type { PickedFeature } from './types'
-import { dataBase, fileStamps } from './manifest'
+import { dataUrl, fileStamps } from './manifest'
 import type { Manifest } from './manifest'
 
 type Props = {
@@ -118,7 +118,7 @@ export function MapView({
       })
       ready.current = true
       syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
-                 slot.current, slotLen, fileStamps(manifest), fetchedAt)
+                 slot.current, slotLen, manifest, fetchedAt)
     })
     map.current = m
     return () => {
@@ -137,7 +137,7 @@ export function MapView({
     const m = map.current
     if (!m || !ready.current) return
     syncLayers(m, enabled, loaded, pending, onLoadingChange, onPick, onCounts,
-               slotIdx, slotLen, fileStamps(manifest), fetchedAt)
+               slotIdx, slotLen, manifest, fetchedAt)
   }, [enabled, onLoadingChange, onPick, onCounts, slotIdx, slotLen, manifest])
 
   // ── 配信物の更新に追従（30 分ごとの再配信・static の差し替え）──
@@ -158,7 +158,7 @@ export function MapView({
       )].filter((f) => stamps[f] && stamps[f] !== fetchedAt.current[f])
       for (const file of files) {
         try {
-          const res = await fetch(`${dataBase()}/${file}`, { cache: 'no-cache' })
+          const res = await fetch(dataUrl(file, manifest), { cache: 'no-cache' })
           if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
           const data = await res.json()
           if (!alive) return
@@ -285,9 +285,13 @@ async function syncLayers(
   slotIdx: number,
   slotLen: number,
   /** 取得時点の mtime を控えるため。更新判定の基準になる */
-  stamps: Record<string, number>,
+  manifest: Manifest | null,
   fetchedAt: React.MutableRefObject<Record<string, number>>,
 ) {
+  // 生产 CDN 只公开哈希对象；manifest 到达前不能猜稳定文件名。
+  // dev 没有 VITE_DATA_BASE 时仍允许直接读 /data，方便本地看 publish 快照。
+  if (import.meta.env.VITE_DATA_BASE && !manifest) return
+  const stamps = fileStamps(manifest)
   for (const def of LAYERS) {
     const want = enabled.has(def.id)
 
@@ -297,8 +301,7 @@ async function syncLayers(
       onLoadingChange(def.id, true)
       try {
         // 本番は CDN（VITE_DATA_BASE）、dev は vite プラグインが ../storage/publish を配信
-        const base = (import.meta.env.VITE_DATA_BASE as string | undefined) ?? '/data'
-        const res = await fetch(`${base.replace(/\/$/, '')}/${def.file}`)
+        const res = await fetch(dataUrl(def.file, manifest))
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         const data = await res.json()
         // ⚠️ **成果物の世代ずれを検出する。**

@@ -51,10 +51,11 @@ storage/raw/gem/{download_date}/
 | 字段 | 值 |
 |---|---|
 | `source_url` | Global Energy Monitor — Global Integrated Power Tracker |
-| `licence` | **TO VERIFY** —— 下载时的使用条款需通读 |
-| `redistributable` | **TO VERIFY** |
+| `licence` | **CC BY 4.0** —— 见 Global Energy Monitor 的 licence 页面 |
+| `redistributable` | **yes** —— 需注明出处，建议引用 *Global Integrated Power Tracker, Global Energy Monitor, March 2026 release* |
 
-⚠️ GEM 对再配布通常有条件。**在确认前，由 GEM 派生的属性不推 CDN**；几何层（来自 ODbL 源）可以单独发布，因此两者在管线里保持可分离。
+许可已按 `ATTRIBUTION.md` 的 2026-08-11 核查结论同步。GEM 派生属性可以进入发布产物，
+但仍不能把 GEM 的许可误写成 ODbL；发布元数据要同时列出各来源。
 
 ## 已知坑
 

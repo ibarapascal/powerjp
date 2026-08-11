@@ -73,7 +73,7 @@ publish      tiles/{z}/{x}/{y}.pbf + Parquet 分片 + manifest.json → R2
 
 - `raw/` **按日期分文件、不覆盖**。30 分更新对当日文件用 `--force` 覆盖，
   但当日 CSV 是**累积**的（含到当时为止的全部断面），所以不丢历史
-- `publish/` 是**当前 72 小时的快照**，被覆盖是正常的，不是数据丢失
+- `publish/` 是**当前 120 小时的快照**，被覆盖是正常的，不是数据丢失
 - ⚠️ **分析用的时序档案还没有** —— 现在历史只存在于 raw 的 CSV/JSON 里，
   查询要逐文件解析。要做跨年分析得先把它们转成 Parquet（`TODO.md` S4〜S7）。
   **这是「数据要落档供未来分析」这件事目前唯一的缺口。**
@@ -110,7 +110,9 @@ powerjp/
 ├── storage/               ← gitignore
 │   ├── raw/               ← 不可变原始落盘
 │   └── structured/        ← Parquet 产物
-└── docs/decisions/        ← ADR，每个架构决定一个文件
+├── docs/decisions/        ← ADR，每个架构决定一个文件
+├── docs/OPERATIONS.md     ← 公开安全的部署、监控、刷新、回滚手册
+└── docs/releases/         ← 发布事实记录（不放凭据或内部机器信息）
 ```
 
 ## 约定
@@ -293,7 +295,7 @@ uv run python -m pipeline.publish.geojson
 |---|---|---|---|
 | `structured_plants` | occto_unit + ajg + gem + ksj_p03 | `plants/plants.json` | 186 座，按発電量覆盖 **99.94%**；带 `coord_source`/`match_method` |
 | `structured_plant_verify` | structured_plants | `plants/verify.json` | 四项校验 **(0,2,4,0)**，剩余均已人工确认为误报 |
-| `structured_lines` | occto_flow + ajg | `lines/lines.json` | 464 条潮流线求出 **335 条（72.2%）**真实几何；基幹系覆盖 44.3% |
+| `structured_lines` | occto_flow + ajg | `lines/lines.json` | 464 条潮流线求出 **317 条（68.3%）**真实几何；基幹系覆盖 44.3%（严格过滤后） |
 | `structured_disaggregated` | area_jukyu + occto_unit + jepoc_hydro + gem + ksj_p03 | `disaggregated/sites.json` | 1,185 站（measured 9 / estimated 1,176）；带 `data_quality` |
 
 ⚠️ **覆盖率和正确率是两个 asset**。`plants` 报「匹配上多少」，`plant_verify` 报「匹配得对不对」——
@@ -311,7 +313,7 @@ pipeline / Dagster asset / schedule / 将来的配信脚本都从那里读，
 |---|---|---:|---:|---|
 | static | `grid_lines.geojson` | 40,924 | 19.6 MB | AJG 出新版时 |
 | static | `substations.geojson` | 8,994 | 2.2 MB | 同上 |
-| static | `sites.geojson` | 624 | 156 KB | 同上 |
+| static | `sites.geojson` | 106 | 28 KB | 同上；水力因许可未确认暂不发布 |
 | dynamic | `flow_lines.geojson` | 684 | 1.5 MB | **30 分** |
 | dynamic | `plants.geojson` | 183 | 216 KB | **30 分** |
 | dynamic | `flow_stamps.json` | — | 3 KB | **30 分** |
@@ -323,6 +325,9 @@ pipeline / Dagster asset / schedule / 将来的配信脚本都从那里读，
 ⚠️ `flow_lines` は**区間単位**（線路単位ではない）。1 本の潮流線が
 複数の電圧をまたぐため、区間ごとに実電圧を持たせて線幅を送電線と揃えている。
 誤った幾何（電圧不整合・長い直線代用）は**出力しない**。詳細は `FLOW_MATCHING.md`。
+
+`publish_r2` は `publish_geojson` の後段 asset。定时 job 只传 dynamic 层，初次上线或
+static 变化时用 `--scope all`；数据对象名带内容 hash，`manifest.json` 最后写入。
 
 前端在 `web/`（React + Vite + Mapbox GL JS，端口 8081）。
 **扩展点只有 `web/src/layers.ts`** —— 侧边栏、图例、开关、信息面板全由它生成。
@@ -341,7 +346,7 @@ dev 由 vite 插件从 `storage/publish/` 配信，生产用 `VITE_DATA_BASE` �
 用户 2026-08-02 明确要求：**「一定不要做简化」**。
 
 不做 Douglas-Peucker，不按缩放级别抽稀，不合并顶点。
-`lines.json` 的 335 条走线、35,469 个坐标点**原样发布**。
+`lines.json` 的 317 条走线、35,469 个坐标点**原样发布**。
 
 **理由不是大小，是原则**：项目一开始就定了「所有的线都要是真实几何」，
 为省几百 KB 把真走线降级成折线近似，等于把花最大力气拿到的东西又丢掉。

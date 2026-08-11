@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">powerjp — 日本の電力系統を観測する地図</title>
+  <desc id="desc">公開データから日本の送電網と観測潮流を可視化するプロジェクト</desc>
+  <rect width="1200" height="630" fill="#0b0f14"/>
+  <g opacity=".55" stroke="#1e2530" stroke-width="1">
+    <path d="M0 90h1200M0 180h1200M0 270h1200M0 360h1200M0 450h1200M0 540h1200"/>
+    <path d="M100 0v630M220 0v630M340 0v630M460 0v630M580 0v630M700 0v630M820 0v630M940 0v630M1060 0v630"/>
+  </g>
+  <g fill="none" stroke="#617086" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M720 112 835 205 1002 164 1087 278 948 390 1040 508 850 544 724 420 600 474 506 350 620 237Z" stroke-width="3" opacity=".55"/>
+    <path d="M720 112 620 237 835 205 724 420 1002 164 948 390 1087 278 1040 508 850 544 600 474 506 350" stroke-width="2" opacity=".8"/>
+  </g>
+  <g fill="#dfe6ef">
+    <circle cx="720" cy="112" r="8"/><circle cx="835" cy="205" r="8"/><circle cx="1002" cy="164" r="8"/>
+    <circle cx="1087" cy="278" r="8"/><circle cx="948" cy="390" r="8"/><circle cx="1040" cy="508" r="8"/>
+    <circle cx="850" cy="544" r="8"/><circle cx="600" cy="474" r="8"/><circle cx="506" cy="350" r="8"/><circle cx="620" cy="237" r="8"/><circle cx="724" cy="420" r="8"/>
+  </g>
+  <path d="M88 134h70M88 151h42" stroke="#ffb84d" stroke-width="4" stroke-linecap="round"/>
+  <text x="88" y="236" fill="#dfe6ef" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="76" font-weight="500">powerjp</text>
+  <text x="92" y="296" fill="#acb5c3" font-family="IBM Plex Sans JP, sans-serif" font-size="30">日本の電力系統を観測する地図</text>
+  <text x="92" y="356" fill="#8893a7" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="17" letter-spacing="3">JAPAN / POWER GRID / OBSERVED FLOW</text>
+  <text x="92" y="548" fill="#8893a7" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="16">OPEN DATA VISUALIZATION</text>
+</svg>

@@ -13,17 +13,53 @@ pnpm dev                  # http://localhost:8081
 
 ⚠️ **`.env` を編集したら dev サーバーを再起動すること**（Vite は env を起動時にしか読まない）。
 
+## SEO / GEO
+
+`index.html` と `public/` に、単一ページの公開前提で必要な発見性 metadata をまとめている：
+
+- `favicon.svg`、`manifest.json`、dark theme metadata
+- Japanese title/description、canonical、Open Graph、Twitter Card
+- `geo.region=JP` / `geo.placename=Japan`（全国データなので都市の架空座標は付けない）
+- WebSite / Organization / WebApplication / Dataset の JSON-LD
+- `robots.txt`、`sitemap.xml`
+- `/.well-known/ai.json`、`ai.html`、`llms.txt`、`llms-full.txt`
+
+Static metadata points to the production URL `https://powerjp.mkhr.co.jp/`.
+Preview deployments use a separate Pages URL; keep the production canonical URL in
+`index.html`, `public/`, `AI.md`, and the sitemap. Preview deployments should be
+protected with Cloudflare Access and are expected to remain non-indexed.
+
 ## データはどこから来るか
 
 ```
-storage/publish/*.geojson      ← pipeline の publish 層が生成
+storage/publish/*.geojson                 ← pipeline の publish 層が生成
         ↓ dev: vite プラグインが /data で配信（vite.config.ts）
-        ↓ 本番: R2 → CDN、VITE_DATA_BASE で指す
-      fetch('/data/xxx.geojson')
+        ↓ 本番: R2 → data.powerjp.mkhr.co.jp
+      manifest.json → content-hash object → fetch()
 ```
 
 **`public/` には置かない** —— そこに置くと build 時に 10 MB が dist にコピーされる。
 本番のデータは CDN 側に置き、`dist` にはコードだけを含める。
+
+前端は `manifest.json` を 5 分ごとに检查し、manifest 变更的对象才会重新读取；这不是整页
+刷新，用户当前的缩放、图层和时间滑块状态会保留。
+
+## R2 に公開する
+
+R2 の認証情報は repo 直下の `.env` にだけ置く（`.env.example` 参照）。初回は
+全層を確認してから公開し、その後の 30 分更新は dynamic 層だけを送る：
+
+```bash
+uv run python -m pipeline.publish.upload --scope all --dry-run
+uv run python -m pipeline.publish.upload --scope all
+uv run python -m pipeline.publish.upload --scope dynamic
+```
+
+アップロード対象の定義は `pipeline/publish/spec.py` が唯一の出所。データ对象名
+带内容 hash，`manifest.json` 最后写入；生产环境的 `VITE_DATA_BASE` 必须指向
+`R2_PREFIX` 对应的 CDN 路径。每次 manifest 成功更新后，默认会清理 R2 上不再被当前
+manifest 引用、且超过 `R2_PRUNE_GRACE_HOURS`（默认 6 小时）的旧 hash 对象；私有计算节点
+上的 raw 历史和本地 publish 重建能力不受影响。排障时可用 `--no-prune` 暂停清理。
 
 データを更新するには、リポジトリのルートで：
 
