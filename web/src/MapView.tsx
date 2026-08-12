@@ -442,7 +442,9 @@ async function syncLayers(
             // 幅は定数（zoom 補間のみ）。送電線の同電圧帯と同じ値
             'line-width': ['interpolate', ['linear'], ['zoom'], 4, t.w4, 11, t.w11],
             'line-opacity': 1,
-            'line-dasharray': t.seq[0],
+            // @types/mapbox-gl は array<number> のみだが、流光は zoom ごとの
+            // `step` 式を使う（flowGlow.ts 参照）。
+            'line-dasharray': t.seq[0] as never,
           },
         })
       } catch (err) {

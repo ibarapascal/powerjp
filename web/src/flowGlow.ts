@@ -78,6 +78,32 @@ function makeDashSeq(widthPx: number): number[][] {
   })
 }
 
+/**
+ * `line-dasharray` は線幅の倍数で、しかも配列そのものは interpolate できない。
+ * そこで zoom ごとの配列を `step` に詰める。
+ *
+ * Mapbox は zoom 式を整数 zoom で評価するため、4 未満は w4、5〜11 は
+ * その整数 zoom での補間幅、11 以上は w11 を使う。整数の間では線幅だけが
+ * 滑らかに変わるので完全一致ではないが、現在の「常に w11 基準」よりずっと
+ * 小さい誤差で、zoom 中に setPaintProperty を追加で呼ばずに済む。
+ */
+function makeZoomDashSeq(w4: number, w11: number): unknown[][] {
+  const seqByZoom = new Map<number, number[][]>()
+  for (let z = 4; z <= 11; z += 1) {
+    const width = w4 + (w11 - w4) * ((z - 4) / 7)
+    seqByZoom.set(z, makeDashSeq(width))
+  }
+
+  return Array.from({ length: FRAMES }, (_, k) => {
+    // zoom < 5（zoom 3/4 を含む）は w4 の系列。
+    const expr: unknown[] = ['step', ['zoom'], seqByZoom.get(4)![k]]
+    for (let z = 5; z <= 11; z += 1) {
+      expr.push(z, seqByZoom.get(z)![k])
+    }
+    return expr
+  })
+}
+
 
 /**
  * 流光アニメーション。
@@ -125,7 +151,7 @@ const TIER_WIDTHS = [
  * `setFilter` なら幾何の再パースは起きない。
  */
 export const GLOW_TIERS = TIER_WIDTHS.flatMap((t) => {
-  const seq = makeDashSeq(t.w11)
+  const seq = makeZoomDashSeq(t.w4, t.w11)
   return [
     { ...t, id: `flow_glow_${t.key}_fwd`, dir: 1 as const, seq },
     { ...t, id: `flow_glow_${t.key}_rev`, dir: -1 as const, seq },
@@ -200,6 +226,10 @@ export const utilAt = (i: number): unknown[] => [
 // ⚠️ これ以上速くすると 1 フレーム 44ms を割り、dash テクスチャの
 //    再生成が追いつかずカクつき始める。
 const CYCLE_MS = 700
+// 全国表示では短い線分がほぼサブピクセルになり、流光を動かすほど
+// ラスタライズの有無が明滅する。潮流線と静止した光段は残し、局所表示
+// （zoom 5 以上）でだけ方向のアニメーションを再開する。
+const FLOW_ANIMATION_MIN_ZOOM = 5
 
 type WithRaf = mapboxgl.Map & {
   __flowRaf?: number | null
@@ -237,6 +267,14 @@ export function startFlowAnimation(m: mapboxgl.Map) {
       mm.__flowRaf = null
       return
     }
+    // 遠景では光を動かさない。`line-dasharray` 自体は zoom 式なので、
+    // 地図を縮小しても静止した光段の長さはその zoom に合わせて変わる。
+    // RAF は残す（拡大した次のフレームで自然に再開するため）。
+    if (mm.getZoom() < FLOW_ANIMATION_MIN_ZOOM) {
+      lastIdx = -1
+      mm.__flowRaf = requestAnimationFrame(tick)
+      return
+    }
     // ── 停止中は位相を進めない ──
     const now = performance.now()
     if (now < (mm.__flowHoldUntil ?? 0)) {
@@ -262,7 +300,11 @@ export function startFlowAnimation(m: mapboxgl.Map) {
           // ★ 逆向きの帯は**位相を逆に進める**。同じ系列を後ろから読むだけで
           //   光が反対へ流れる。系列を別に作る必要はない。
           const k = t.dir > 0 ? idx % FRAMES : (FRAMES - (idx % FRAMES)) % FRAMES
-          if (mm.getLayer(t.id)) mm.setPaintProperty(t.id, 'line-dasharray', t.seq[k])
+          if (mm.getLayer(t.id)) {
+            // @types/mapbox-gl は array<number> しか表現できないが、Mapbox
+            // 実装はここで `step(zoom, array, ...)` も受け付ける。
+            mm.setPaintProperty(t.id, 'line-dasharray', t.seq[k] as never)
+          }
         }
         mm.__flowFrameWarned = false
       } catch (err) {
