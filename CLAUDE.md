@@ -292,8 +292,8 @@ uv run python -m pipeline.publish.geojson
 
 | asset | 类型 | 状态 |
 |---|---|---|
-| `raw_ajg` | auto | ✅ v1.6.0，线 40,077 / 变电所 6,962 / 发电所 19,138；另有 `generators` 688 个 ≥10MW **带完整调度参数**。506MB |
-| `raw_area_jukyu` | auto | ✅ 10 社 487 文件。⚠️ 東京·四国 FY2023 以前未取得；⚠️ FY2024+ 统一格式与 FY2023- 的 24 种异构表头并存 |
+| `raw_ajg` | auto | ✅ v1.7.0（2026-08-27），线 40,087 / 变电所 7,240 / 发电所 19,138；另有 `generators` 688 个 ≥10MW **带完整调度参数**。620.7MB，sha 253/253 |
+| `raw_area_jukyu` | auto | ✅ 10 社 487 文件；**2026-08-27 起入日次调度**（`backfill_daily` 带 `recent=2` 强刷当月＋前月——当月文件是滚动累积的，中部只挂两个月）。⚠️ 東京·四国 FY2023 以前未取得；⚠️ FY2024+ 统一格式与 FY2023- 的 24 种异构表头并存 |
 | `raw_occto_flow` | auto | ✅ 逐线潮流 30 分 × 10 区域，**匿名公表身份即可**。回填中 |
 | `raw_occto_unit` | auto | ✅ **逐机组 × 30 分**，859 天 / 413,546 条 / 502MB，2024-03-25→今 |
 | `raw_jepoc_hydro` | auto | ✅ 水力 1,801 座（帯 `output_kw`/発電方式）。⚠️ **无坐标** |
@@ -306,9 +306,9 @@ uv run python -m pipeline.publish.geojson
 
 | asset | 依赖 | 产物 | 关键指标 |
 |---|---|---|---|
-| `structured_plants` | occto_unit + ajg + gem + ksj_p03 | `plants/plants.json` | 186 座，按発電量覆盖 **99.94%**；带 `coord_source`/`match_method` |
-| `structured_plant_verify` | structured_plants | `plants/verify.json` | 四项校验 **(0,2,4,0)**，剩余均已人工确认为误报 |
-| `structured_lines` | occto_flow + ajg | `lines/lines.json` | 464 条潮流线求出 **317 条（68.3%）**真实几何；基幹系覆盖 44.3%（严格过滤后） |
+| `structured_plants` | occto_unit + ajg + gem + ksj_p03 | `plants/plants.json` | 185 座池 / 182 匹配，按発電量覆盖 **99.88%**；带 `coord_source`/`match_method` |
+| `structured_plant_verify` | structured_plants | `plants/verify.json` | 四项校验 **(0,4,4,0)**（AJG v1.7.0 后 ② 多出 2 件，待人工确认——海田/福島いわき/田原/釧路 四件中新旧混在） |
+| `structured_lines` | occto_flow + ajg | `lines/lines.json` | 464 条潮流线求出 **330 条（71.1%，AJG v1.7.0）**真实几何 |
 | `structured_disaggregated` | area_jukyu + occto_unit + jepoc_hydro + gem + ksj_p03 | `disaggregated/sites.json` | 1,185 站（measured 9 / estimated 1,176）；带 `data_quality` |
 
 ⚠️ **覆盖率和正确率是两个 asset**。`plants` 报「匹配上多少」，`plant_verify` 报「匹配得对不对」——
@@ -324,8 +324,8 @@ pipeline / Dagster asset / schedule / 将来的配信脚本都从那里读，
 
 | 层 | 文件 | features | 未压缩 | 变更频率 |
 |---|---|---:|---:|---|
-| static | `grid_lines.geojson` | 40,924 | 19.6 MB | AJG 出新版时 |
-| static | `substations.geojson` | 8,994 | 2.2 MB | 同上 |
+| static | `grid_lines.geojson` | 40,936 | 17.8 MB | AJG 出新版时（现 v1.7.0） |
+| static | `substations.geojson` | 9,298 | 2.2 MB | 同上 |
 | static | `sites.geojson` | 106 | 28 KB | 同上；水力因许可未确认暂不发布 |
 | dynamic | `flow_lines.geojson` | 684 | 1.5 MB | **30 分** |
 | dynamic | `plants.geojson` | 183 | 216 KB | **30 分** |
