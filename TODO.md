@@ -202,3 +202,20 @@
 - **publish 层**（瓦片 / R2 / manifest）—— 等 structured 稳定
 - **derive 层**（供需空洞、利用率、价差）—— 等 structured
 - **git commit** —— 用户明确要求不主动动 git
+- **Dagster 编排迁移到 mkhr-data**（2026-08-27 记录，用户方针）——
+  powerjp 的 Dagster 早晚整体迁到 `../mkhr-data/` 的数据中台。在那之前
+  **新增编排一律按 powerjp 现有规范做、不引入新机制**，保证可整体搬走。
+  迁移时需要带走的完整上下文：
+  - 调度 2 本：`refresh_30min`（05/35 每时，potok/机组＋publish dynamic）、
+    `backfill_daily`（01:20 JST，7 日穴埋め＋area_jukyu `recent=2`）——
+    定义与「为什么这样配」全在 `orchestration/schedules.py` 的注释里
+  - 窗口 config 两种：`IngestWindow`（days/force/include_today）、
+    `AreaJukyuWindow`（recent）—— 都是「当日/当月文件滚动累积、
+    已存在跳过会停更」这同一个坑的解法（LESSONS #45、INGEST.md）
+  - 约定：asset=subprocess 调 CLI、不用 IO Manager、metadata 记数
+    （CLAUDE.md 约定 3/4）；pipeline/ 不感知 Dagster，迁移只动 orchestration/
+  - 运行环境：私有计算节点 LaunchAgent `com.powerjp.dagster`（端口 3001，
+    与同机其他服务错开）、`DAGSTER_HOME` 固定 —— 私有细节见 `CLAUDE.local.md`
+  - 接入流程走 mkhr-data 的 `docs/DATASET_INTAKE.md` / `skills/pipeline-onboarding.md`
+- **AJG v1.7.0 的方向别连系线容量**（`interconnections.yaml`，顺/逆不对称）——
+  负荷率概算 `LINE_CAPACITY_MW` 的潜在改善点，见 `pipeline/sources/ajg/INGEST.md`

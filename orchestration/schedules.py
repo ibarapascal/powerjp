@@ -32,7 +32,7 @@ from dagster import (
 from pipeline.publish import spec
 
 from .assets.publish import PublishScope
-from .assets.raw import IngestWindow
+from .assets.raw import AreaJukyuWindow, IngestWindow
 
 TZ = "Asia/Tokyo"
 # 層の名前も spec 由来。文字列を直に書かない（打ち間違えても実行時まで気づけない）
@@ -71,13 +71,21 @@ refresh_schedule = ScheduleDefinition(
 
 # ── 日次の穴埋め ──────────────────────────────────────────────
 # force を付けない＝既に揃っている日は触らない。落ちた回の取りこぼしを拾う。
+#
+# ★ area_jukyu もここで日次更新する（2026-08-27）。
+#   - 上流は**当月累積 CSV**（各社 日次级で更新）。recent=2 で当月＋前月だけ
+#     強刷（10 社 × 2 件 ≈ 数 MB、直列）。放置すると当月ファイルが初回取得日で
+#     止まるうえ、**中部は当月しか掲載しない**ので月をまたぐと永久欠損になる。
+#   - 下流（structured_disaggregated → sites）は従来どおり手動。ここでは
+#     raw を腐らせないことだけを保証する。
 backfill_job = define_asset_job(
     name="backfill_daily",
-    selection=_REFRESH,
-    description="直近 7 日の抜けを補完してから GeoJSON を作り直す",
+    selection=_REFRESH | AssetSelection.assets("raw_area_jukyu"),
+    description="直近 7 日の抜けとエリア需給の当月分を補完し、GeoJSON を作り直す",
     config=RunConfig(ops={
         "raw_occto_flow": IngestWindow(days=7, force=False),
         "raw_occto_unit": IngestWindow(days=7, force=False),
+        "raw_area_jukyu": AreaJukyuWindow(recent=2),
         "publish_geojson": PublishScope(only=DYNAMIC),
         "publish_r2": PublishScope(only=DYNAMIC),
     }),

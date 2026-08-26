@@ -62,9 +62,22 @@ python -m pipeline.sources.area_jukyu.probe            # 重探下载入口（�
 python -m pipeline.sources.area_jukyu.ingest           # 全社全期间
 python -m pipeline.sources.area_jukyu.ingest --utility tokyo
 python -m pipeline.sources.area_jukyu.ingest --skip-legacy
+python -m pipeline.sources.area_jukyu.ingest --recent 2   # 当月＋前月强刷（定时任务用）
 ```
 
 `probe.py` 只做一件事：列出「哪个页面挂了哪些 CSV」。网站改版导致取不到时，先跑 probe 更新候选 URL。
+
+### 更新节奏与调度（2026-08-27 起入日次调度）
+
+- 上游是**当月累积 CSV**，各社约日次滚动更新当月文件。
+- ingest 默认「已存在就跳过」，所以当月文件会**停在首次取得的那天**
+  （OCCTO 当日文件同款坑）。`--recent N` 让最近 N 个月即使已存在也强刷，
+  并跳过 legacy。
+- 已挂进 Dagster `backfill_daily`（01:20 JST，`AreaJukyuWindow(recent=2)`，
+  见 `orchestration/schedules.py`）：每天 10 社 × 2 件 ≈ 6–7MB 下载、原地覆盖，
+  净增长约 3.3MB/月。**下游（disaggregate → sites）不在调度里，仍手动**。
+- 进调度的最实际理由：**中部只挂当月＋前月**，跨月忘拉就是永久缺口
+  （raw 不可复原）。
 
 ## 落盘
 

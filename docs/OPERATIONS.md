@@ -79,8 +79,11 @@ production smoke checks below. Do not “fix” production by editing R2 directl
 ## Refresh contract
 
 The Dagster `refresh_30min` schedule updates the dynamic publish layer every 30
-minutes. The freshness checker runs independently on the same interval and checks
-the published manifest. The browser checks the manifest every 5 minutes and
+minutes. The daily `backfill_daily` schedule (01:20 JST) fills gaps in the last
+7 days of OCCTO data and force-refreshes the current and previous month of
+`area_jukyu` (the monthly CSVs accumulate in place; Chubu only hosts two
+months, so skipping a month loses it permanently). The freshness checker runs
+independently on the same interval and checks the published manifest. The browser checks the manifest every 5 minutes and
 reloads only changed data objects; it does not force a full-page reload, so map
 state and the time slider remain in place.
 

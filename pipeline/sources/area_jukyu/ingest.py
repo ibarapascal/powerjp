@@ -156,8 +156,13 @@ def exists(utility: str, filename: str) -> bool:
     return p.is_file() and p.stat().st_size > 0
 
 
-def fetch_unified(key: str, u: Utility, *, force: bool) -> dict:
-    """按月枚举统一格式并下载。"""
+def fetch_unified(key: str, u: Utility, *, force: bool, recent: int = 0) -> dict:
+    """按月枚举统一格式并下载。
+
+    `recent > 0` 时，**最近 N 个月（含当月）即使已存在也强刷** —— 当月文件是
+    滚动累积的，「已存在就跳过」会让它停在首次取得的那天（OCCTO 当日文件同款坑，
+    见 orchestration/schedules.py）。跨月边界多带一个月，上月最终版也能收敛。
+    """
     if not u.unified_base:
         return {"fetched": [], "missing": [], "bytes": 0}
     headers = {"Referer": u.referer} if u.referer else None
@@ -166,9 +171,11 @@ def fetch_unified(key: str, u: Utility, *, force: bool) -> dict:
     total = 0
     consecutive_miss = 0
 
-    for y, m in months_since(u.unified_from):
+    months = months_since(u.unified_from)
+    recent_set = set(months[-recent:]) if recent > 0 else set()
+    for y, m in months:
         name = f"eria_jukyu_{y}{m:02d}_{u.code}.csv"
-        if exists(key, name) and not force:
+        if exists(key, name) and not force and (y, m) not in recent_set:
             got.append(name)
             consecutive_miss = 0
             continue
@@ -281,7 +288,12 @@ def main() -> None:
     ap.add_argument("--skip-unified", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--recent", type=int, default=0, metavar="N",
+                    help="最近 N 个月（含当月）即使已存在也强刷，并跳过 legacy。"
+                         "定时任务用（当月文件是滚动累积的）")
     args = ap.parse_args()
+    if args.recent > 0:
+        args.skip_legacy = True
 
     fetch.setup_logging()
     targets = {args.utility: UTILITIES[args.utility]} if args.utility else UTILITIES
@@ -301,7 +313,7 @@ def main() -> None:
         uni = {"fetched": [], "missing": [], "bytes": 0}
         leg = {"fetched": [], "bytes": 0}
         if not args.skip_unified:
-            uni = fetch_unified(key, u, force=args.force)
+            uni = fetch_unified(key, u, force=args.force, recent=args.recent)
         if not args.skip_legacy:
             leg = fetch_legacy(key, u, force=args.force)
             if leg.get("note"):

@@ -70,16 +70,32 @@ def raw_occto_flow(
 # ---------------------------------------------------------------- 时序
 
 
+class AreaJukyuWindow(Config):
+    """エリア需給の取得窓。
+
+    `recent > 0` = 最近 N か月（当月含む）を**既存でも強刷**し、legacy を
+    飛ばす。当月ファイルは滚动累积なので、既存スキップのままだと初回取得日で
+    止まる（IngestWindow の force と同じ理屈）。`recent=0` は従来どおり全量。
+    """
+
+    recent: int = 0
+
+    def args(self) -> list[str]:
+        return ["--recent", str(self.recent)] if self.recent > 0 else []
+
+
 @asset(group_name="raw_timeseries", compute_kind="download")
 def raw_area_jukyu(
-    context: AssetExecutionContext, cfg: PowerjpConfig
+    context: AssetExecutionContext, cfg: PowerjpConfig, config: AreaJukyuWindow
 ) -> MaterializeResult:
     """エリア需給実績 10 社（逐时，含电源种别分项）。
 
     FY2024 以降是全国统一命名 `eria_jukyu_{YYYYMM}_{NN}.csv`，
     FY2023 以前各社各不相同。详见 INGEST.md。
     """
-    return run_and_report(context, cfg, "pipeline.sources.area_jukyu.ingest")
+    return run_and_report(
+        context, cfg, "pipeline.sources.area_jukyu.ingest", *config.args()
+    )
 
 
 @asset(group_name="raw_generation", compute_kind="download")
