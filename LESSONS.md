@@ -1090,3 +1090,32 @@ publish 会正确裁掉末尾空コマ，因此最终时间轴暴露出当天文
 
 > ⚠️ 番号を振る前に `grep "^## #" LESSONS.md | tail` で最後の番号を確かめること。
 > 一度 `#42` を重複させた（既存の「警告を出し続ける処理」に気づかず追記した）。
+
+## #46 mapbox-gl v3 では `line-dasharray` の書き込みが source 全体の再レイアウトになる
+
+**现象**（2026-08-27，三个看似不同的症状）：
+1. 打开页面时潮流线成片闪烁，几秒后自愈；
+2. 拖动时间轴松手后又闪一阵；
+3. 缩到全国视图时，流光沿着线「攒动」——光点乱爬而不是整齐地流。
+
+**原因**：v3 里 `line-dasharray` 是 pattern 系 data-driven paint 属性。
+`layer.setPaintProperty()` 对它**返回 true（requiresRelayout）**，Style 走
+`_updateLayer` → `updateSourceCache(fqid, 'reload')` —— 即**该 source 的全部
+tile 重新 layout**（`setFilter` 与 data-driven `line-color` 同理）。流光动画
+每 ~44ms 写一次 dasharray，等于让 flow source 以 23 次/秒的节奏无限重建：
+
+- 初始加载时第一批 bucket 还没建成就被反复无效化 → 症状 1；
+- 拖动写入的 filter 重建还没落地，动画恢复又来叠加 → 症状 2；
+- 低 zoom 单 tile 要素多、重建追不上写入节奏，相邻 tile 落在不同相位 → 症状 3。
+- 稳态时旧 bucket 会继续渲染到新 bucket 就绪，所以「后来就好了」——这正是
+  它难以定位的原因：症状只出现在「没有旧 bucket 可垫」的时刻。
+
+**结论**（三层修复，都在 `web/src/flowGlow.ts` / `MapView.tsx`）：
+1. **动画恢复必须等 `idle`**：hold（初载/拖动）到期后不立刻写相位，等一次
+   `idle`（挂起的 style 变更和 tile 全部落地）再恢复；
+2. **流光用专用 source**（`flow_glow_src`，与潮流本体同 data 不同 source）——
+   dasharray/filter 的重建风暴不再连累 `flow_lines` 底线；
+3. **zoom < 6 不写相位**（原 5 不够：大窗口下「日本全境」还在 5.x）。
+⚠️ 任何「按帧改 dasharray / filter / data-driven paint」的动画方案，在 v3 里
+都要先想清楚它是不是在让 source 每帧重建。
+

@@ -14,7 +14,7 @@ import mapboxgl from 'mapbox-gl'
 import { LAYERS } from './layers'
 import { registerPieIcons, pieIconExpr } from './pieIcons'
 import {
-  GLOW_TIERS, glowFilter, utilAt, UTIL_RAMP,
+  GLOW_TIERS, GLOW_SOURCE_ID, glowFilter, utilAt, UTIL_RAMP,
   startFlowAnimation, stopFlowAnimation, holdFlowAnimation,
 } from './flowGlow'
 import type { PickedFeature } from './types'
@@ -178,6 +178,13 @@ export function MapView({
           const src = m.getSource(file) as mapboxgl.GeoJSONSource | undefined
           if (src?.setData) {
             src.setData(data)
+            // 流光の専用 source も同じ data で追随させる（片方だけ更新すると
+            // 潮流線と光で別世代のコマを描くことになる）
+            if (file === 'flow_lines.geojson') {
+              const glowSrc = m.getSource(GLOW_SOURCE_ID) as
+                mapboxgl.GeoJSONSource | undefined
+              glowSrc?.setData?.(data)
+            }
             fetchedAt.current[file] = stamps[file]
             onCounts(tallyCounts(file, data))
           }
@@ -354,6 +361,12 @@ async function syncLayers(
         //   layer ごとに source を作ると同じデータを何度も持つことになる。
         const srcId = def.file
         if (!m.getSource(srcId)) m.addSource(srcId, { type: 'geojson', data })
+        // ★ 流光は**専用 source**（中身は同じ data）。dasharray/filter の
+        //   書き込みは source 単位の全タイル再レイアウトなので、共有すると
+        //   潮流線本体まで一緒に作り直されてちらつく（flowGlow.ts 参照）。
+        if (def.file === 'flow_lines.geojson' && !m.getSource(GLOW_SOURCE_ID)) {
+          m.addSource(GLOW_SOURCE_ID, { type: 'geojson', data })
+        }
         // ★ 件数は**読み込んだ実データから数える**。宣言に焼き込むと
         //   上流が更新されたとき黙って古い数字を出し続ける。
         onCounts(tallyCounts(def.file, data))
@@ -430,10 +443,9 @@ async function syncLayers(
         m.addLayer({
           id: t.id,
           type: 'line',
-          // ⚠️ source は**ファイル名**で作られる（同じ GeoJSON を複数レイヤーで
-          //    共有するため）。レイヤー id ではないので間違えると
-          //    addLayer が例外を投げ、潮流ごと消える（実際に消えた）。
-          source: 'flow_lines.geojson',
+          // ⚠️ 流光は専用 source（潮流線本体と共有しない —— flowGlow.ts 参照）。
+          //    source id を間違えると addLayer が例外を投げ、潮流ごと消える。
+          source: GLOW_SOURCE_ID,
           // ★ 電圧帯 **かつ** そのコマの潮流の向きで絞る。
           //   向きごとにレイヤーが分かれている理由は flowGlow.ts の注記参照。
           filter: glowFilter(t, currentSlot) as never,

@@ -226,13 +226,29 @@ export const utilAt = (i: number): unknown[] => [
 // ⚠️ これ以上速くすると 1 フレーム 44ms を割り、dash テクスチャの
 //    再生成が追いつかずカクつき始める。
 const CYCLE_MS = 700
-// 全国表示では短い線分がほぼサブピクセルになり、流光を動かすほど
-// ラスタライズの有無が明滅する。潮流線と静止した光段は残し、局所表示
-// （zoom 5 以上）でだけ方向のアニメーションを再開する。
-const FLOW_ANIMATION_MIN_ZOOM = 5
+// 全国表示では光を動かさない。理由は 2 つ：
+// 1. 短い線分がほぼサブピクセルになり、動かすほどラスタライズの有無が明滅する
+// 2. dasharray の書き込みは source の全タイル再レイアウト（下の注記参照）で、
+//    低 zoom はタイルあたりの要素数が桁違いに多く、23 步/秒に再レイアウトが
+//    追いつかない。タイルごとに別の位相が出そろって**全体がちらつく**。
+// 潮流線と静止した光段は残し、局所表示でだけ方向のアニメーションを再開する。
+// ⚠️ 5 では大きい画面の「日本全境」（zoom 5.x）が引っかかる。6 に置く。
+const FLOW_ANIMATION_MIN_ZOOM = 6
+
+/**
+ * ★ 流光レイヤー専用の source id。
+ *
+ * `flow_lines.geojson` の source を潮流線本体と**共有しない**。
+ * dasharray / filter の書き込みは source 単位で全タイル再レイアウトを起こすので、
+ * 共有すると流光を動かすたびに潮流線本体まで作り直され、一緒にちらつく。
+ * 中身は同じ GeoJSON（MapView が同じ data で 2 つ source を作る）。
+ */
+export const GLOW_SOURCE_ID = 'flow_glow_src'
 
 type WithRaf = mapboxgl.Map & {
   __flowRaf?: number | null
+  /** hold 明けの idle 待ちに入っているか（下の注記参照） */
+  __flowWaitIdle?: boolean
   /** この時刻までは位相を進めない（スライダー操作中） */
   __flowHoldUntil?: number
   /** 停止を始めた時刻。再開時に skew へ足す */
@@ -255,12 +271,27 @@ type WithRaf = mapboxgl.Map & {
  * —— 押したまま止めている間も「読んでいる」ので、そこで流れ出してよい）。
  */
 export function holdFlowAnimation(m: mapboxgl.Map, ms = 300) {
-  (m as WithRaf).__flowHoldUntil = performance.now() + ms
+  const mm = m as WithRaf
+  // max を取る —— 既に長い hold が掛かっているとき、後から来た短い hold が
+  // それを**短縮**してしまわないように。
+  mm.__flowHoldUntil = Math.max(mm.__flowHoldUntil ?? 0, performance.now() + ms)
 }
 
 export function startFlowAnimation(m: mapboxgl.Map) {
   const mm = m as WithRaf
   if (mm.__flowRaf != null) return         // 同じ map に二重に張らない
+  // ── ⚠️ 動き出しは必ず「idle 待ち」から入る（開いた直後の明滅対策）──
+  //
+  // mapbox-gl v3 では `line-dasharray` は pattern 系の data-driven paint
+  // プロパティで、setPaintProperty のたびに Style が `_updateLayer` →
+  // source cache を 'reload'（**全タイルの再レイアウト**）にする。
+  // 既存バケットがあれば reload 中も古いものを描き続けるので目立たないが、
+  // **初期ロード中**は最初のバケットが完成する前に毎フレーム無効化され、
+  // 同じ source の flow_lines 本体ごと点滅する
+  // （「開くとチカチカして、しばらくすると落ち着く」の正体）。
+  // __flowHoldFrom を立てておくと、下の tick が idle を一度待ってから
+  // 位相を書き始める。
+  if (mm.__flowHoldFrom == null) mm.__flowHoldFrom = performance.now()
   let lastIdx = -1
   const tick = () => {
     if (!mm.getLayer || !mm.getLayer(GLOW_TIERS[0].id)) {
@@ -282,11 +313,29 @@ export function startFlowAnimation(m: mapboxgl.Map) {
       mm.__flowRaf = requestAnimationFrame(tick)
       return
     }
-    // ⚠️ 再開時、止まっていた時間を差し引く。差し引かないと位相が
-    //    実時間ぶん飛んで、光が瞬間移動したように見える。
+    // ── hold 明けは、地図が一度 idle になるまで再開しない ──
+    //
+    // スライダー操作は 10 層の setFilter / setPaintProperty を書くので、
+    // hold（300ms）が切れた時点ではその再レイアウトがまだ流れていることが
+    // ある。そこへ dasharray を書き始めると、作りかけのバケットを毎フレーム
+    // 無効化し合って**ドラッグ直後だけチカチカする**。idle（保留中の style
+    // 変更とタイルが出そろった合図）を一度待てば衝突しない。
+    // 初期ロードも同じ経路 —— startFlowAnimation が __flowHoldFrom を
+    // 立てるので、最初の 1 回も必ずここを通る。
     if (mm.__flowHoldFrom != null) {
-      mm.__flowSkew = (mm.__flowSkew ?? 0) + (now - mm.__flowHoldFrom)
-      mm.__flowHoldFrom = null
+      if (!mm.__flowWaitIdle) {
+        mm.__flowWaitIdle = true
+        mm.once('idle', () => {
+          // ⚠️ 再開時、止まっていた時間を差し引く。差し引かないと位相が
+          //    実時間ぶん飛んで、光が瞬間移動したように見える。
+          const n = performance.now()
+          mm.__flowSkew = (mm.__flowSkew ?? 0) + (n - (mm.__flowHoldFrom ?? n))
+          mm.__flowHoldFrom = null
+          mm.__flowWaitIdle = false
+        })
+      }
+      mm.__flowRaf = requestAnimationFrame(tick)
+      return
     }
     // ⚠️ 毎フレーム setPaintProperty すると（60fps）dash テクスチャの
     //    再生成が間に合わず明滅する。フレーム番号が変わった時だけ書く。
