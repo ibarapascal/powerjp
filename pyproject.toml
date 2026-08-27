@@ -15,18 +15,12 @@ dependencies = [
     "pyshp>=2.3",
 ]
 
-[project.optional-dependencies]
-orchestration = [
-    "dagster>=1.9",
-    "dagster-webserver>=1.9",
-]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pipeline", "orchestration"]
+packages = ["pipeline"]
 
 [tool.uv]
 package = true

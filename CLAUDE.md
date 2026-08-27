@@ -26,8 +26,8 @@
 
 | 层 | 选型 | 备注 |
 |---|---|---|
-| 编排 | Dagster（`dagster dev`） | **不用 `dagster-webserver`** —— 没有 daemon，run 会卡在 QUEUED |
-| 处理 | Python + uv | 脚本纯 CLI，不感知 Dagster |
+| 编排 | **mkhr-data の Dagster に移管（2026-08-27）** | 采集＝mkhr `power` location、前端 publish＝同 location の `powerjp_publish`（本 repo の CLI を subprocess 実行）。本 repo に編排層は無い |
+| 处理 | Python + uv | 脚本纯 CLI，不感知编排层 |
 | 存储 | PostGIS（几何/拓扑） + Parquet（时序） | Parquet on disk 是 SSOT |
 | 瓦片 | tippecanoe → `{z}/{x}/{y}.pbf` 目录 | **不用 PMTiles**：其 `addProtocol` 是 MapLibre API，Mapbox GL JS 不支持 |
 | 分发 | Cloudflare R2（静态产物） | 后端不对公网暴露端口，只出站 |
@@ -103,8 +103,6 @@ powerjp/
 ├── pipeline/              ← 纯 Python，不感知 Dagster
 │   ├── core/              ← 共通工具（坐标、区域码、时区）
 │   └── sources/{name}/    ← 每源一目录，含 INGEST.md
-├── orchestration/         ← Dagster 编排
-│   └── assets/            ← raw.py / structured.py / derive.py / publish.py / demo.py
 ├── web/                   ← React + Vite + Mapbox（M1 起就存在，初期极简）
 ├── infra/                 ← docker-compose 等
 ├── storage/               ← gitignore
@@ -153,12 +151,13 @@ powerjp/
 ## 运行
 
 ```bash
-uv sync --extra orchestration                    # 环境（Python 固定 3.12.x）
-uv run python -m pipeline.sources.{name}.ingest  # 单个源，脱离 Dagster 也能跑
-uv run dagster dev -m orchestration.definitions -h 127.0.0.1 -p 3001
+uv sync                                          # 环境（Python 固定 3.12.x）
+uv run python -m pipeline.sources.{name}.ingest  # 单个源（定时采集已由 mkhr-data 承担）
+uv run python -m pipeline.publish.geojson --only dynamic   # publish（定时由 mkhr-data 承担）
 ```
 
-⚠️ `DAGSTER_HOME` 必须设成 repo 下的 `dagster_home/`，否则每次用临时目录、历史丢失。
+> 编排（采集与 30 分 publish 的定时）2026-08-27 起全部在 mkhr-data repo 的
+> Dagster（`pipelines/dagster/power`）；本 repo 只保留纯 CLI。
 
 > 端口与机器分工等**本地部署的选择**记在 `CLAUDE.local.md`（不进 git）——
 > 那是我们这套环境的情况，不是项目本身的约束。单机也能跑完整流程。
@@ -171,8 +170,8 @@ change routing / cold-start sequence，再读本地私有运维记录（不在 r
 最后读本次涉及的数据源 `INGEST.md` 或 `web/` 文档。
 
 前端改动只需要构建并部署 Cloudflare Pages；数据/API 改动需要把代码同步到私有计算节点，按
-`ingest → structured/publish → R2 manifest` 的最小范围重跑；`orchestration/` 或 schedule
-改动才重启 `com.powerjp.dagster`。这里所说的“API”是 R2 的静态 manifest + hash object
+`ingest → structured/publish → R2 manifest` 的最小范围重跑；schedule 改动去 mkhr-data
+repo（`pipelines/dagster/power`）。这里所说的“API”是 R2 的静态 manifest + hash object
 契约，没有需要对公网重启的后端服务。完整的分流表、验收和安全边界以
 `docs/OPERATIONS.md` 为准。
 

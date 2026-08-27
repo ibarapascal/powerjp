@@ -73,8 +73,8 @@ python -m pipeline.sources.area_jukyu.ingest --recent 2   # 当月＋前月强�
 - ingest 默认「已存在就跳过」，所以当月文件会**停在首次取得的那天**
   （OCCTO 当日文件同款坑）。`--recent N` 让最近 N 个月即使已存在也强刷，
   并跳过 legacy。
-- 已挂进 Dagster `backfill_daily`（01:20 JST，`AreaJukyuWindow(recent=2)`，
-  见 `orchestration/schedules.py`）：每天 10 社 × 2 件 ≈ 6–7MB 下载、原地覆盖，
+- 已挂进 mkhr-data の Dagster 日次班（01:20 JST、recent=2，
+  mkhr-data repo `pipelines/dagster/power/schedules.py`）：每天 10 社 × 2 件 ≈ 6–7MB 下载、原地覆盖，
   净增长约 3.3MB/月。**下游（disaggregate → sites）不在调度里，仍手动**。
 - 进调度的最实际理由：**中部只挂当月＋前月**，跨月忘拉就是永久缺口
   （raw 不可复原）。

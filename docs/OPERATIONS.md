@@ -7,21 +7,25 @@ installation details belong in private operations notes, not in this file.
 ## Production topology
 
 ```text
-private Dagster dev
-  ├─ ingest → raw/ → structured/ → publish/
-  ├─ publish upload (hash objects, then manifest)
-  └─ freshness check
+mkhr-data platform Dagster (power location, private compute)
+  ├─ ingest → shared raw tree (this repo reads it via storage/raw symlinks)
+  ├─ powerjp_publish → structured/ → publish/ → upload (hash objects, then manifest)
+  └─ freshness check (this repo's independent agent)
               ↓
 Cloudflare R2 → data.powerjp.mkhr.co.jp/powerjp/v1
               ↓
 Cloudflare Pages → powerjp.mkhr.co.jp
 ```
 
+Since 2026-08-27 all scheduling (ingest and the 30-minute publish) lives in the
+mkhr-data repository's Dagster (`pipelines/dagster/power`). This repository
+contains only pure CLI pipeline code that the platform invokes.
+
 - Frontend: <https://powerjp.mkhr.co.jp/>
 - Data base: <https://data.powerjp.mkhr.co.jp/powerjp/v1>
 - Pages project: `powerjp`
-- Dagster is intentionally a private development process, not a public service
-  and not a containerized production API.
+- Orchestration runs inside the mkhr-data platform Dagster on the same private
+  machine; it is not a public service and not a containerized production API.
 
 ## Source of truth and change routing
 
@@ -47,12 +51,12 @@ frontend together.
 | `pipeline/sources/**` | CLI `--dry-run` or a small date/window | Sync code to the private compute checkout; run the smallest ingest → publish → R2 scope, or let the next schedule do it |
 | `pipeline/structured/**` or `geojson.py` | Run the affected deterministic step and inspect counts | Sync to the private compute checkout, rebuild the affected publish layer, then upload `dynamic` or `all` as appropriate |
 | `pipeline/publish/spec.py` or `upload.py` | `--dry-run` and manifest/object review | Treat as a publication-contract change; coordinate producer and frontend, then publish `all` when the object set changes |
-| `orchestration/**` or schedule config | `py_compile` plus a small Dagster run | Sync to the private compute checkout and restart only the owned Dagster agent; verify both schedules are `RUNNING` |
+| schedule config | change in the mkhr-data repo (`pipelines/dagster/power`) | Deploy via that repo's procedure; verify the schedules are `RUNNING` |
 | R2/Pages env, CORS, DNS, Mapbox restrictions | Provider-side read-only check | Change in Cloudflare/Mapbox settings; never commit the value |
 
 The private compute checkout is a runtime mirror of the code source, not a
 second Git history. Code is synchronized explicitly while `storage/`, `.env`,
-`.venv/`, `dagster_home/`, `web/node_modules/`, `web/dist/`, and logs remain
+`.venv/`, `web/node_modules/`, `web/dist/`, and logs remain
 machine-local. The exact paths, resource gate, and LaunchAgent commands are in
 the ignored private operations notes referenced by `CLAUDE.local.md`.
 
@@ -72,14 +76,15 @@ When resuming this project after context loss, read in this order:
 
 The minimum safe handoff is: identify the changed layer, validate locally, make
 the working tree clean and push the release commit, sync only code when the
-private compute checkout is involved, restart only the owned Dagster agent when
-orchestration changed, publish through `pipeline.publish.upload`, and run the
+private compute checkout is involved (schedule changes go through the mkhr-data
+repo instead), publish through `pipeline.publish.upload`, and run the
 production smoke checks below. Do not “fix” production by editing R2 directly.
 
 ## Refresh contract
 
-The Dagster `refresh_30min` schedule updates the dynamic publish layer every 30
-minutes. The daily `backfill_daily` schedule (01:20 JST) fills gaps in the last
+The mkhr-data `powerjp_publish_30min` schedule (10,40 past each hour JST)
+rebuilds and uploads the dynamic publish layer, five minutes after the platform's
+ingest tick. The platform's daily backfill (01:20 JST) fills gaps in the last
 7 days of OCCTO data and force-refreshes the current and previous month of
 `area_jukyu` (the monthly CSVs accumulate in place; Chubu only hosts two
 months, so skipping a month loses it permanently). The freshness checker runs
@@ -167,14 +172,15 @@ redeploy the data or restart the compute machine just for DNS propagation.
 
 ## Monitoring and recovery
 
-The private machine runs two owned agents:
+The private machine runs one owned agent plus the platform Dagster:
 
-- `com.powerjp.dagster`: persistent Dagster dev server, bound to loopback only.
 - `com.powerjp.freshness`: independent 30-minute manifest freshness check.
+- Ingest and publish runs live in the mkhr-data Dagster (`com.mkhr.*` agents,
+  operated from that repo); inspect run history there.
 
 Use the private daemon ledger to inspect them and their logs. A healthy PID is not
 enough: confirm recent log output, a recent manifest timestamp, and no duplicate
-powerjp worker. If a run fails, inspect the Dagster/freshness logs, fix the source
+powerjp worker. If a run fails, inspect the platform Dagster/freshness logs, fix the source
 or data issue, then run the smallest affected scope. Use `--scope dynamic` for a
 normal retry; use `--scope all` only when static artifacts changed or the manifest
 is known to be incomplete.
@@ -195,7 +201,7 @@ The compute machine also runs unrelated containers and scripts. For powerjp:
 - check memory, disk, active processes, and ports before expensive backfills;
 - stop and report if a task risks OOM or interferes with another service.
 
-Dagster remains a bare dev process by design. Cloudflare Pages and R2 handle only
+Cloudflare Pages and R2 handle only
 the public frontend and published artifacts; they do not replace the private
 compute pipeline.
 
@@ -204,7 +210,7 @@ compute pipeline.
 - Actual R2 credentials, webhook URLs, and Mapbox token values live only in local
   ignored environment files or provider-side environment settings.
 - `.env.example` files contain names and empty/example values only.
-- Raw data, local Dagster state, build output, Wrangler state, logs, and private
+- Raw data, build output, Wrangler state, logs, and private
   operations notes are not repository inputs.
 - The Mapbox browser token is a public client token by design; its protection is
   the Mapbox URL allow-list, not secrecy.

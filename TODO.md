@@ -202,7 +202,11 @@
 - **publish 层**（瓦片 / R2 / manifest）—— 等 structured 稳定
 - **derive 层**（供需空洞、利用率、价差）—— 等 structured
 - **git commit** —— 用户明确要求不主动动 git
-- **Dagster 编排迁移到 mkhr-data**（2026-08-27 记录，用户方针）——
+- ✅ **Dagster 编排迁移到 mkhr-data**（2026-08-27 当日完成）——采集三源迁入
+  mkhr `pipelines/dagster/power`，前端 publish 由同 location 的 `powerjp_publish`
+  （subprocess 调本 repo CLI）托管，`orchestration/` 已删除、`com.powerjp.dagster`
+  已停。cutover 快照见 mkhr-data
+  `docs/snapshots/POWERJP_INGEST_CUTOVER_20260827.md`。以下为迁移前的原记录：——
   powerjp 的 Dagster 早晚整体迁到 `../mkhr-data/` 的数据中台。在那之前
   **新增编排一律按 powerjp 现有规范做、不引入新机制**，保证可整体搬走。
   迁移时需要带走的完整上下文：
