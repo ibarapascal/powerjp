@@ -300,51 +300,41 @@ def load_flow_slots() -> tuple[dict, list[str]]:
 
     戻り値の `slots` は `stamps` と同じ長さ・同じ順序。値が無いコマは `None`。
     """
-    import csv
-    import io
-    root = paths.raw("occto_flow")
-    files = sorted(root.rglob("*.csv"))
-    if not files:
-        return {}, []
+    from pipeline.publish import platform_feed
 
     # ---- 対象日 ----
     # ⚠️ **窓は「直近 FLOW_WINDOW_H 時間」であって「直近 N 日」ではない**
     #    （REQUIREMENTS T5「浮动过去 24 48 或者 72」）。
     #    日単位で切ると窓の頭が日境界に貼り付き、時間が進んでも動かない。
-    #    例：72h のつもりが 08-04 00:00〜08-06 21:00（69.5h）になる。
-    #    なので**1 日多く**読み込んでおき、下で末尾から 144 コマだけ残す。
-    days = sorted({f.name.split("_")[-2] for f in files})
+    #    なので**1 日多く**読み込んでおき、下で末尾から必要コマだけ残す。
+    # 入力＝平台 publish 面（records 確定日 gz ＋ current 当日 gz）。raw CSV 直読は
+    # 2026-08-27 に廃止（cp932 解析・列名探しは平台 parse が担う）。
+    import datetime
+    today = (datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+             .strftime("%Y%m%d"))
+    all_days = platform_feed.available_days("occto-flow", today)
+    if not all_days:
+        return {}, []
     n_days = -(-FLOW_WINDOW_H // 24) + 1             # 切り上げ + 余分に 1 日
-    days = days[-n_days:]
+    days = all_days[-n_days:]
     stamps = [f"{d} {h:02d}:{m:02d}"
               for d in days for h in range(24) for m in (0, 30)]
     idx = {s: i for i, s in enumerate(stamps)}
 
     out: dict = {}
-    for f in files:
-        day = f.name.split("_")[-2]
-        if day not in days:
+    for day, row in platform_feed.iter_rows("occto-flow", days, today):
+        nm = (row.get("line_name") or "").strip()
+        ar = (row.get("area") or "").strip()
+        if not nm:
             continue
-        txt = f.read_text(encoding="cp932", errors="replace").splitlines()
-        hi = next((i for i, l in enumerate(txt) if "送電線名" in l), None)
-        if hi is None:
+        j0 = idx.get(f"{day} 00:00")
+        if j0 is None:
             continue
-        for r in csv.DictReader(io.StringIO("\n".join(txt[hi:]))):
-            nm = (r.get("送電線名") or "").strip()
-            ar = (r.get("対象エリア") or "").strip()
-            if not nm:
+        slots = out.setdefault((ar, nm), [None] * len(stamps))
+        for i, v in enumerate(row.get("values") or []):
+            if v is None or i >= SLOTS_PER_DAY:
                 continue
-            slots = out.setdefault((ar, nm), [None] * len(stamps))
-            for k, v in r.items():
-                if not k or ":" not in str(k):       # 00:00 … 23:30 の各コマ
-                    continue
-                j = idx.get(f"{day} {str(k).strip()}")
-                if j is None:
-                    continue
-                try:
-                    slots[j] = round(float(str(v).replace(",", "")), 1)
-                except (TypeError, ValueError):
-                    pass
+            slots[j0 + i] = round(float(v), 1)
 
     # ---- 末尾の「まだ来ていないコマ」を落とす ----
     # stamps は日単位で作るので、当日ぶんの未到来コマが必ず末尾に null で残る。
@@ -580,48 +570,35 @@ def load_unit_slots(stamps: list[str]) -> dict:
     キーは `split_operator()` の結果 —— structured 側と同じ規則で割らないと
     「松浦」「橘湾」のような同地名別会社が混ざる。
     """
+    from pipeline.publish import platform_feed
     from pipeline.structured.plant_coords import split_operator
 
     days = sorted({s.split(" ")[0] for s in stamps})
     idx = {s: i for i, s in enumerate(stamps)}
-    files = sorted(paths.raw("occto_unit").rglob("unit_*.json"))
+    # 入力＝平台 publish 面（records ＋ current）。raw JSON 直読は 2026-08-27 廃止。
+    # 平台の values[i] は**コマ始点** 00:00+30i に並べ替え済み——raw 時代の
+    # 「htdnRslt は区間の終わり、30 分引く」補正はもう要らない（platform_feed 参照）。
+    today = days[-1]
     out: dict = {}
-    n_day = 0
-    for f in files:
-        day = f.stem.replace("unit_", "")
-        if day not in days:
+    seen_days: set = set()
+    for day, row in platform_feed.iter_rows("occto-unit", days, today):
+        op, n = split_operator(row.get("plant_name") or "")
+        if not n:
             continue
-        n_day += 1
-        items = json.loads(f.read_text(encoding="utf-8"))["data"]["items"]
-        for it in items:
-            op, n = split_operator(it.get("htdnsNm", ""))
-            if not n:
+        seen_days.add(day)
+        slots = out.setdefault((op, n), [None] * len(stamps))
+        # ⚠️ コマごとに idx を引く：stamps は窓に裁剪済みで、先頭の日は途中コマ
+        #    から始まる——日頭 00:00 を基準にすると先頭日を丸ごと落とす（実踩）。
+        for i, v in enumerate(row.get("values") or []):
+            if v is None or i >= SLOTS_PER_DAY:
                 continue
-            slots = out.setdefault((op, n), [None] * len(stamps))
-            # ⚠️ キーは**連番ではなく時刻**：`htdnRslt0030` 〜 `htdnRslt2400`。
-            #    しかも指すのは区間の**終わり**（`0030` は 00:00〜00:30 の実績、
-            #    `2400` は 23:30〜24:00）。潮流 CSV の列は区間の**始まり**
-            #    （00:00 … 23:30）なので、30 分引いて始点に合わせる。
-            #    連番として読むと `0030` だけが 0〜47 に収まり、
-            #    **1 コマしか埋まらない**（実際にそうなった）。
-            for k in it:
-                if not k.startswith("htdnRslt"):
-                    continue
-                hhmm = k[len("htdnRslt"):]
-                if len(hhmm) != 4 or not hhmm.isdigit():
-                    continue
-                mins = int(hhmm[:2]) * 60 + int(hhmm[2:]) - 30     # 区間の始点へ
-                if not 0 <= mins < 24 * 60:
-                    continue
-                j = idx.get(f"{day} {mins // 60:02d}:{mins % 60:02d}")
-                if j is None:
-                    continue
-                try:
-                    v = int(str(it[k]).replace(",", "") or 0)
-                except ValueError:
-                    continue
-                # kWh/30分 → MW（1 コマ 0.5h なので ×2、kW→MW で ÷1000）
-                slots[j] = round((slots[j] or 0.0) + v * 2 / 1000.0, 2)
+            mins = 30 * i
+            j = idx.get(f"{day} {mins // 60:02d}:{mins % 60:02d}")
+            if j is None:
+                continue
+            # kWh/30分 → MW（1 コマ 0.5h なので ×2、kW→MW で ÷1000）
+            slots[j] = round((slots[j] or 0.0) + float(v) * 2 / 1000.0, 2)
+    n_day = len(seen_days)
     log.info("機組の出力 %d 系列 × %d コマ（%d 日ぶん）", len(out), len(stamps), n_day)
     return out
 
