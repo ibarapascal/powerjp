@@ -307,12 +307,10 @@ def load_flow_slots() -> tuple[dict, list[str]]:
     #    （REQUIREMENTS T5「浮动过去 24 48 或者 72」）。
     #    日単位で切ると窓の頭が日境界に貼り付き、時間が進んでも動かない。
     #    なので**1 日多く**読み込んでおき、下で末尾から必要コマだけ残す。
-    # 入力＝平台 publish 面（records 確定日 gz ＋ current 当日 gz）。raw CSV 直読は
-    # 2026-08-27 に廃止（cp932 解析・列名探しは平台 parse が担う）。
-    import datetime
-    today = (datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
-             .strftime("%Y%m%d"))
-    all_days = platform_feed.available_days("occto-flow", today)
+    # 入力＝平台 publish 面（records 確定日 gz ＋ latest 最新鏡像 gz）。raw CSV 直読は
+    # 2026-08-27 に廃止（cp932 解析・列名探しは平台 parse が担う）。日別の帰属は
+    # platform_feed が行の date で判定する（2026-08-29 改形、当日という前提を持たない）。
+    all_days = platform_feed.available_days("occto-flow")
     if not all_days:
         return {}, []
     n_days = -(-FLOW_WINDOW_H // 24) + 1             # 切り上げ + 余分に 1 日
@@ -322,7 +320,7 @@ def load_flow_slots() -> tuple[dict, list[str]]:
     idx = {s: i for i, s in enumerate(stamps)}
 
     out: dict = {}
-    for day, row in platform_feed.iter_rows("occto-flow", days, today):
+    for day, row in platform_feed.iter_rows("occto-flow", days):
         nm = (row.get("line_name") or "").strip()
         ar = (row.get("area") or "").strip()
         if not nm:
@@ -575,13 +573,12 @@ def load_unit_slots(stamps: list[str]) -> dict:
 
     days = sorted({s.split(" ")[0] for s in stamps})
     idx = {s: i for i, s in enumerate(stamps)}
-    # 入力＝平台 publish 面（records ＋ current）。raw JSON 直読は 2026-08-27 廃止。
+    # 入力＝平台 publish 面（records ＋ latest）。raw JSON 直読は 2026-08-27 廃止。
     # 平台の values[i] は**コマ始点** 00:00+30i に並べ替え済み——raw 時代の
     # 「htdnRslt は区間の終わり、30 分引く」補正はもう要らない（platform_feed 参照）。
-    today = days[-1]
     out: dict = {}
     seen_days: set = set()
-    for day, row in platform_feed.iter_rows("occto-unit", days, today):
+    for day, row in platform_feed.iter_rows("occto-unit", days):
         op, n = split_operator(row.get("plant_name") or "")
         if not n:
             continue
