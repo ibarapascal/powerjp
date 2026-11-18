@@ -89,6 +89,8 @@
 
 **代价**：public repo 没有开发历史。接受。
 
+**2026-11 更新（取代上文的选择）**：改为在原 repo 用 `filter-repo` 清理历史后公开，保留开发历史；旧 SHA 残留的处理见 `LESSONS.md` #4。
+
 **连带纪律**：凭据永不进 git（任何 repo，private 也不行）；机器身份与非公开判断放另一个 private repo，通过 `CLAUDE.local.md` 的一行 import 引入。
 
 ## 10. 推进顺序

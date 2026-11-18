@@ -19,7 +19,7 @@ were propagating. It returned 200 after the DNS/Pages binding completed.
 - Separate static and dynamic cache policies
 - R2 CORS for the production page origin
 - 5-minute browser manifest polling without forced full-page refresh
-- 30-minute private Dagster refresh and independent freshness check
+- 30-minute scheduled refresh on private infrastructure and an independent freshness check
 
 ## Verification performed
 
@@ -30,15 +30,15 @@ returned HTTP 200.
 
 ## Operational decisions
 
-- Dagster remains a bare dev process on the private compute machine; it is not
-  exposed as a public service and was not containerized.
+- The scheduler runs on the private compute machine; it is not exposed as a
+  public service and was not containerized.
 - R2 stores only the current frontend snapshot plus the configured grace window;
   raw history stays on the private machine.
-- The repository remains private. Public release will use a new repository with no
-  inherited history after the final audit.
-- The `area_jukyu` redistribution question remains unresolved. The owner chose not
-  to block this frontend launch on that issue; this record is not a licence grant
-  or legal clearance. See `ATTRIBUTION.md`.
+- The repository remained private at this point; it was made public after a later
+  history and sensitive-information audit.
+- For `area_jukyu`, only derived estimates (area totals apportioned by installed
+  capacity) are published; the utilities' original CSVs are not redistributed.
+  Per-utility terms are under review. See `ATTRIBUTION.md`.
 
 ## Information deliberately absent
 

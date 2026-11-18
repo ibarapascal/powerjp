@@ -8,7 +8,7 @@
 ## 语言规范
 
 - repo 内 `.md` 默认**中文**。数据源名称保留日文原文（エリア需給実績、系統情報サービス）；技术术语保留英文（asset、Parquet、tile）。
-- **例外**：`README.md` 与 `ATTRIBUTION.md` 用**英文** —— 它们是公开后的门面，面向国际读者。
+- **例外**：`README.md` 用**日文**（公开门面，主要读者在日本）；`ATTRIBUTION.md` 用**英文**（出典与许可，面向国际读者）。
 
 ## 项目定位与范围
 
@@ -26,7 +26,7 @@
 
 | 层 | 选型 | 备注 |
 |---|---|---|
-| 编排 | **mkhr-data の Dagster に移管（2026-08-27）** | 采集＝mkhr `power` location、前端 publish＝同 location の `powerjp_publish`（本 repo の CLI を subprocess 実行）。本 repo に編排層は無い |
+| 编排 | 外部编排平台（2026-08-27 起） | 采集与前端 publish 的定时都由外部编排以 subprocess 调本 repo 的 CLI。本 repo 没有编排层 |
 | 处理 | Python + uv | 脚本纯 CLI，不感知编排层 |
 | 存储 | PostGIS（几何/拓扑） + Parquet（时序） | Parquet on disk 是 SSOT |
 | 瓦片 | tippecanoe → `{z}/{x}/{y}.pbf` 目录 | **不用 PMTiles**：其 `addProtocol` 是 MapLibre API，Mapbox GL JS 不支持 |
@@ -98,7 +98,7 @@ powerjp/
 ├── CLAUDE.md              ← 本文件
 ├── CLAUDE.local.md        ← gitignore，一行 import（内容在 repo 外）
 ├── LESSONS.md             ← 踩坑记录
-├── README.md              ← 英文，公开门面
+├── README.md              ← 日文，公开门面
 ├── ATTRIBUTION.md         ← 英文，数据源出典与许可
 ├── pipeline/              ← 纯 Python，不感知 Dagster
 │   ├── core/              ← 共通工具（坐标、区域码、时区）
@@ -152,12 +152,12 @@ powerjp/
 
 ```bash
 uv sync                                          # 环境（Python 固定 3.12.x）
-uv run python -m pipeline.sources.{name}.ingest  # 单个源（定时采集已由 mkhr-data 承担）
-uv run python -m pipeline.publish.geojson --only dynamic   # publish（定时由 mkhr-data 承担）
+uv run python -m pipeline.sources.{name}.ingest  # 单个源（定时采集由外部编排承担）
+uv run python -m pipeline.publish.geojson --only dynamic   # publish（定时由外部编排承担）
 ```
 
-> 编排（采集与 30 分 publish 的定时）2026-08-27 起全部在 mkhr-data repo 的
-> Dagster（`pipelines/dagster/power`）；本 repo 只保留纯 CLI。
+> 编排（采集与 30 分 publish 的定时）2026-08-27 起移到外部编排平台；本 repo 只保留纯 CLI。
+> 平台的实际位置与 job 名见本地 `DEPLOY.local.md` 开头的对照表。
 
 > 端口与机器分工等**本地部署的选择**记在 `CLAUDE.local.md`（不进 git）——
 > 那是我们这套环境的情况，不是项目本身的约束。单机也能跑完整流程。
@@ -166,12 +166,11 @@ uv run python -m pipeline.publish.geojson --only dynamic   # publish（定时由
 
 代码仓库是技术代码与文档的 SSOT；私有计算节点只是带有 raw 历史和运行环境的运行镜像，
 不能把它当成第二个代码分支。冷启动或接手任务时，先读 `docs/OPERATIONS.md` 的
-change routing / cold-start sequence，再读本地私有运维记录（不在 repo 内），
+change routing / cold-start sequence，再读本地 `DEPLOY.local.md`（gitignore；开头的对照表把本 repo 文档里的「外部编排平台」「私有计算节点」等中性说法对应到实际名字），
 最后读本次涉及的数据源 `INGEST.md` 或 `web/` 文档。
 
 前端改动只需要构建并部署 Cloudflare Pages；数据/API 改动需要把代码同步到私有计算节点，按
-`ingest → structured/publish → R2 manifest` 的最小范围重跑；schedule 改动去 mkhr-data
-repo（`pipelines/dagster/power`）。这里所说的“API”是 R2 的静态 manifest + hash object
+`ingest → structured/publish → R2 manifest` 的最小范围重跑；schedule 改动在外部编排侧进行。这里所说的“API”是 R2 的静态 manifest + hash object
 契约，没有需要对公网重启的后端服务。完整的分流表、验收和安全边界以
 `docs/OPERATIONS.md` 为准。
 
@@ -276,7 +275,7 @@ uv run python -m pipeline.publish.geojson
 - ⚠️ **机组成本不是缺口** —— AJG 的 `docs/data/generators.geojson`（688 个 ≥10MW 机组）带 `capacity_mw` / `ramp` / `startup_cost_jpy` / `heat_rate` / `co2_intensity` / `outage_rate` 等**完整调度参数**（典型值非实测）。原先写「无机组成本」是错的。
 - **公开「实时」的真实边界**：需求 5 分钟、网侧 30 分钟、供给的**准实时**只有区域聚合。对外表述用「准实时（5–30 分钟延迟）」，不要说 real-time。
 - **逐机组出力：公开的，但是日次公布不是准实时** —— OCCTO ユニット別発電実績公開システム 给「発電所コード / 発電所名 / ユニット名 / 発電方式 / 対象日 / 30 分 × 48 断面」，2024-03-25 起，每日 15:30 更新。⚠️ 立项调研笔记说「不存在」是**错的**，见 `pipeline/sources/occto_unit/INGEST.md`。
-- **逐变电站负载、配电级一切**：确认不公开，不要再找。
+- ~~**逐变电站负载、配电级一切**：确认不公开，不要再找。~~ ⚠️ **2026-09-11 纠错：变电站级是公开的，只是不在 OCCTO 而在十家一般送配電事業者各自官网**（与 `occto_unit` 同一种错法）。两套表：①「地点別需要・系統潮流実績（変圧器）」＝变电所变压器二次侧 1 小时实测潮流，多数社到 22kV 站、北海道只到 66kV、東京・沖縄到 6.6kV bank；十社全有（九社 CSV、中部 Excel），全国齐的最新年度 FY2024。②「予想潮流・空容量一覧（変圧器）」＝台数・設備容量・運用容量・予想潮流・空き容量，九社静态 CSV 下到 6.6kV 配電用変電所（中部只有交互地图）。两表站名同体系，清洗后 join 率 95–100%。坐标官方不给，靠 AJG 按名匹配 22kV 以上 40–77%、6.6kV 站 22–58%。「空き容量」语义是逆潮流接入余量，不是加负荷余量。十社逐家的格式与解析要点待开工时整理进对应 `INGEST.md`。**许可与 OCCTO 不同**：各社系統情報页只有免责条款，站点通用著作権条款为「無断転載・複製禁止」（東京 HD /legal/、九州 sitepolicy 实读），原始 CSV 不可原样再发布；可行路径见 `TODO.md` C11。配电级 6.6kV **馈线几何**仍不公开，这条不变。
 
 ## Mapbox 注意
 
@@ -384,7 +383,7 @@ CDN 传一次就缓存住；Mapbox 渲染三万多个顶点毫无压力。
 |---|---|
 | **还有什么没做** | **`TODO.md`** ← 待办的 SSOT |
 | **冷启动、前端/API 发布、R2、回滚、验收** | **`docs/OPERATIONS.md`** |
-| **私有计算节点路径、LaunchAgent、代码同步、资源闸门** | 本地私有运维记录（不在 repo 内） |
+| **私有运维信息**（编排平台在哪、计算节点、代码同步、LaunchAgent、资源闸门） | 本地 `DEPLOY.local.md` 开头的「中性说法 → 实际名字」对照表；`CLAUDE.local.md`（均 gitignore，不进公开 repo） |
 | 某数据源怎么拿、要什么凭据、有什么坑 | `pipeline/sources/{name}/INGEST.md` |
 | 数据源出典与许可 | `ATTRIBUTION.md` |
 | 踩过的坑 | `LESSONS.md` |

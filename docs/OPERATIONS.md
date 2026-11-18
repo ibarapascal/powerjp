@@ -7,9 +7,9 @@ installation details belong in private operations notes, not in this file.
 ## Production topology
 
 ```text
-mkhr-data platform Dagster (power location, private compute)
+External orchestration platform (private compute)
   ├─ ingest → shared raw tree (this repo reads it via storage/raw symlinks)
-  ├─ powerjp_publish → structured/ → publish/ → upload (hash objects, then manifest)
+  ├─ publish job → structured/ → publish/ → upload (hash objects, then manifest)
   └─ freshness check (this repo's independent agent)
               ↓
 Cloudflare R2 → data.powerjp.mkhr.co.jp/powerjp/v1
@@ -17,15 +17,15 @@ Cloudflare R2 → data.powerjp.mkhr.co.jp/powerjp/v1
 Cloudflare Pages → powerjp.mkhr.co.jp
 ```
 
-Since 2026-08-27 all scheduling (ingest and the 30-minute publish) lives in the
-mkhr-data repository's Dagster (`pipelines/dagster/power`). This repository
-contains only pure CLI pipeline code that the platform invokes.
+Since 2026-08-27 all scheduling (ingest and the 30-minute publish) runs on an
+external orchestration platform. This repository contains only pure CLI pipeline
+code that the platform invokes.
 
 - Frontend: <https://powerjp.mkhr.co.jp/>
 - Data base: <https://data.powerjp.mkhr.co.jp/powerjp/v1>
 - Pages project: `powerjp`
-- Orchestration runs inside the mkhr-data platform Dagster on the same private
-  machine; it is not a public service and not a containerized production API.
+- Orchestration runs on a private machine; it is not a public service and not a
+  containerized production API.
 
 ## Source of truth and change routing
 
@@ -51,14 +51,14 @@ frontend together.
 | `pipeline/sources/**` | CLI `--dry-run` or a small date/window | Sync code to the private compute checkout; run the smallest ingest → publish → R2 scope, or let the next schedule do it |
 | `pipeline/structured/**` or `geojson.py` | Run the affected deterministic step and inspect counts | Sync to the private compute checkout, rebuild the affected publish layer, then upload `dynamic` or `all` as appropriate |
 | `pipeline/publish/spec.py` or `upload.py` | `--dry-run` and manifest/object review | Treat as a publication-contract change; coordinate producer and frontend, then publish `all` when the object set changes |
-| schedule config | change in the mkhr-data repo (`pipelines/dagster/power`) | Deploy via that repo's procedure; verify the schedules are `RUNNING` |
+| schedule config | Change on the orchestration platform (location in `DEPLOY.local.md`) | Verify the schedules are running |
 | R2/Pages env, CORS, DNS, Mapbox restrictions | Provider-side read-only check | Change in Cloudflare/Mapbox settings; never commit the value |
 
 The private compute checkout is a runtime mirror of the code source, not a
 second Git history. Code is synchronized explicitly while `storage/`, `.env`,
 `.venv/`, `web/node_modules/`, `web/dist/`, and logs remain
-machine-local. The exact paths, resource gate, and LaunchAgent commands are in
-the ignored private operations notes referenced by `CLAUDE.local.md`.
+machine-local. The exact paths, resource gate, and service commands are in
+local ignored notes (`DEPLOY.local.md`).
 
 ## Cold-start sequence
 
@@ -67,24 +67,23 @@ When resuming this project after context loss, read in this order:
 1. `CLAUDE.md` for architecture and hard constraints.
 2. `TODO.md` for the current backlog and release state.
 3. This file for the public deployment/data-release procedure.
-4. `CLAUDE.local.md` and the private operations record for machine paths,
-   credentials locations, ports, and the private compute safety gate.
-5. `DEPLOY.local.md` for the current private release checklist and the exact
-   code-sync/LaunchAgent procedure.
-6. The relevant source `INGEST.md`, `web/README.md`, or
+4. Local ignored notes (`DEPLOY.local.md`, `CLAUDE.local.md`) for machine paths,
+   credential locations, code sync, the compute safety gate, and the mapping from
+   the neutral names used in this file to the actual services.
+5. The relevant source `INGEST.md`, `web/README.md`, or
    `web/REQUIREMENTS.md` before changing that area.
 
 The minimum safe handoff is: identify the changed layer, validate locally, make
 the working tree clean and push the release commit, sync only code when the
-private compute checkout is involved (schedule changes go through the mkhr-data
-repo instead), publish through `pipeline.publish.upload`, and run the
+private compute checkout is involved (schedule changes go through the
+orchestration platform instead), publish through `pipeline.publish.upload`, and run the
 production smoke checks below. Do not “fix” production by editing R2 directly.
 
 ## Refresh contract
 
-The mkhr-data `powerjp_publish_30min` schedule (10,40 past each hour JST)
-rebuilds and uploads the dynamic publish layer, five minutes after the platform's
-ingest tick. The platform's daily backfill (01:20 JST) fills gaps in the last
+The platform ingests every 30 minutes (5,35 past each hour JST). Each completed
+ingest automatically triggers a rebuild and upload of the dynamic publish layer
+(event-driven since 2026-08-27; there is no separate publish cron). The platform's daily backfill (01:20 JST) fills gaps in the last
 7 days of OCCTO data and force-refreshes the current and previous month of
 `area_jukyu` (the monthly CSVs accumulate in place; Chubu only hosts two
 months, so skipping a month loses it permanently). The freshness checker runs
@@ -172,13 +171,12 @@ redeploy the data or restart the compute machine just for DNS propagation.
 
 ## Monitoring and recovery
 
-The private machine runs one owned agent plus the platform Dagster:
+Besides the orchestration platform, the private machine runs one powerjp-owned job:
 
-- `com.powerjp.freshness`: independent 30-minute manifest freshness check.
-- Ingest and publish runs live in the mkhr-data Dagster (`com.mkhr.*` agents,
-  operated from that repo); inspect run history there.
+- an independent 30-minute manifest freshness check.
+- Ingest and publish runs live on the orchestration platform; inspect run history there.
 
-Use the private daemon ledger to inspect them and their logs. A healthy PID is not
+Inspect them and their logs on the private machine. A healthy PID is not
 enough: confirm recent log output, a recent manifest timestamp, and no duplicate
 powerjp worker. If a run fails, inspect the platform Dagster/freshness logs, fix the source
 or data issue, then run the smallest affected scope. Use `--scope dynamic` for a
@@ -192,11 +190,11 @@ current good hash objects during recovery.
 
 ## Resource and safety rules
 
-The compute machine also runs unrelated containers and scripts. For powerjp:
+The compute machine is shared with other workloads. For powerjp:
 
 - never shut down or reboot the machine;
 - never run global `pkill`, `docker compose down`, or broad cleanup commands;
-- operate only the `com.powerjp.*` agents;
+- operate only powerjp's own services;
 - keep uploads serial and prefer the smallest scope;
 - check memory, disk, active processes, and ports before expensive backfills;
 - stop and report if a task risks OOM or interferes with another service.

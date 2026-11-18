@@ -2,7 +2,7 @@
 
 This project combines public data sources under different licences. This file is the single source of truth for what came from where and what may be redistributed.
 
-**Status of this file: incomplete.** Licence terms marked `TO VERIFY` have not yet been read in full. Each source's terms are recorded at the time of first ingest in `pipeline/sources/{name}/INGEST.md`; this file is the roll-up. The `area_jukyu` row remains unresolved. The project owner accepted that risk for the 2026-08-11 frontend launch; this is not permission, legal clearance, or a change to the upstream terms. Future additions to the published dataset still require a resolved attribution/licence decision.
+**Status of this file: incomplete.** Licence terms marked `TO VERIFY` have not yet been read in full. Each source's terms are recorded at the time of first ingest in `pipeline/sources/{name}/INGEST.md`; this file is the roll-up. The `area_jukyu` row remains under review: only derived estimates are published, never the utilities' original CSVs. Future additions to the published dataset still require a resolved attribution/licence decision.
 
 ## Sources
 
@@ -47,10 +47,10 @@ same CC BY 4.0 conclusion.
 outside of printing/saving for personal use, reproducing, transmitting,
 modifying, excerpting, broadcasting or republishing the site's contents is
 prohibited by copyright law, and that prior contact is required to obtain
-permission. **`sites.geojson` currently publishes 518 hydro records whose
-*list* — name, operator, generation method, capacity — originates from this
-database.** That is closer to republication than to derived analysis.
-**To resolve:** obtain permission, or rebuild the hydro list from
+permission. Hydro records whose *list* (name, operator, generation method, capacity)
+originates from this database have been **withheld from all published
+artifacts since 2026-08-07** pending permission; JEPOC is used only for local
+modelling. **To restore them:** obtain permission, or rebuild the hydro list from
 国土数値情報 P03 (水力 698 / 揚水 46, government open data, coordinates included)
 and keep JEPOC for local modelling parameters only.
 
@@ -73,11 +73,9 @@ not allowed. The [東北 data page](https://setsuden.nw.tohoku-epco.co.jp/realti
 [沖縄 data page](https://www.okiden.co.jp/business-support/service/supply-and-demand/)
 did not provide a clear general redistribution grant on the pages checked.
 This confirms that the ten-company source does not have a uniform open-data
-licence. The project publishes derived estimates rather than source CSVs, but
-that distinction has not been confirmed as sufficient permission; **L3 remains
-unresolved**. The project owner explicitly chose not to block the 2026-08-11
-frontend launch on this issue. This must not be described as permission or
-licence clearance.
+licence. The project publishes derived estimates rather than source CSVs; whether
+that is sufficient under each utility's terms is still under review (**L3
+open**). If a utility objects, the affected layer will be withdrawn.
 
 ⚠️ Nothing above is legal advice. It records what the published terms say.
 

@@ -1,13 +1,12 @@
-"""mkhr-data 平台 publish 面（publish/v1）の入力アダプタ。
+"""外部データ平台の publish 面（publish/v1）の入力アダプタ。
 
 2026-08-27 owner 裁决：dynamic 層（flow_lines / flow_stamps / plants）は raw CSV/JSON
 直読をやめ、平台の発布面を食う——確定日＝ `records/{ISO日}.jsonl.gz`、最新断面＝
 `latest.jsonl.gz`（2026-08-29 改形：旧 `current.jsonl.gz`。**日の枠組みを持たない**
-「源発布の最新鏡像」で、日別の組み立ては行の `date` を見て消費側＝ここがやる。
-平台 ARCHITECTURE §3.3 の可変面裁決）。R2 と逐字节同物のローカル樹を読むので
+「源発布の最新鏡像」で、日別の組み立ては行の `date` を見て消費側＝ここがやる）。R2 と逐字节同物のローカル樹を読むので
 往復なし。structured 層（手動再計算）は従来どおり raw 直読で、本モジュールの範囲外。
 
-行スキーマ（平台 ingestion/occto_{flow,unit}/parse.py が SSOT）：
+行スキーマ（平台側の parse が SSOT）：
   flow: {date, area, area_code, voltage_kv, line_name, direction, values[48]}
   unit: {plant_code, area_code, area, plant_name, unit_name, fuel, date,
          values[48], day_total, updated_at}
@@ -22,7 +21,7 @@ from pathlib import Path
 
 
 def publish_root() -> Path:
-    """平台 publish 樹のルート。計算ノードでは /Volumes/fast/mkhr-data/publish。"""
+    """平台 publish 樹のルート。環境変数 MKHR_PUBLISH_ROOT で指定する。"""
     env = os.environ.get("MKHR_PUBLISH_ROOT")
     if env:
         return Path(env).expanduser().resolve()

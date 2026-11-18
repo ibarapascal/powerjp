@@ -5,15 +5,15 @@
 > 更新规则：新发现的候选源加到 §1.3；打通一个就移到 §1.1 并写 `INGEST.md`；
 > 完成的条目**不删**，标 ✅ 并注日期（防止后人重新提出同一件事）。
 > 引用关系：架构约定见 `CLAUDE.md`；各源获取细节见 `pipeline/sources/{name}/INGEST.md`；
-> 匹配问题见 `pipeline/structured/PLANT_MATCHING.md` 与 `FLOW_MATCHING.md`；
+> 匹配问题见 `pipeline/structured/PLANT_MATCHING.md` 与 `FLOW_MATCHING.md`。
 
 ## 发布状态（2026-08-11）
 
 - [x] 生产前端：`https://powerjp.mkhr.co.jp/` 已上线并完成首页、SEO/GEO 静态入口、R2 manifest 与 CORS 验收。
 - [x] 数据配信：`https://data.powerjp.mkhr.co.jp/powerjp/v1`，R2 使用内容 hash、manifest 最后写入，旧 dynamic 版本保留 6 小时后清理。
-- [x] 私有计算节点常驻：Dagster 保持 dev 环境裸跑；独立 freshness 检查每 30 分钟运行。具体 LaunchAgent 与资源安全规则见 `docs/OPERATIONS.md` 及私有运维记录。
-- [ ] public repository：仍未公开；按约定另起 repo，先完成历史与敏感信息审计。
-- [!] `area_jukyu` 的十社再分发许可仍未闭合。项目负责人明确选择不把它作为本次前端上线阻塞项；这不是取得许可或法律结论，见 `ATTRIBUTION.md`。
+- [x] 数据由私有计算节点定时刷新；独立 freshness 检查每 30 分钟运行。
+- [x] public repository：2026-11 完成历史与敏感信息审计后公开。
+- [!] `area_jukyu`：只发布按设备容量摊分的推算值，不转载各社原始 CSV；十社许可条件确认中，见 `ATTRIBUTION.md`。
 
 ---
 
@@ -71,10 +71,10 @@
 | C8 | 各社系統図 PDF | ⏳ 未做 | 修 AJG 接続缺口。**标注转载禁止**，只能取事实 |
 | C9 | 電力取引報 | ⏳ 未做 | 月度 エリア別 × 電圧区分 |
 | C10 | バイオマス / 地熱 | ✅ **顺带解决** | `ksj_p03` 有 `BiomassPowerStation` 400 / `GeothermalPowerPlant` 19，带坐标 |
-| **C11** | **各社 空き容量**（原 §1.2） | ⏳ 未做，**优先级高** | `bess-net.jp/grid` 有全国 10 社变电所空き容量数据库且提到 CSV —— **民间聚合，非官方**。是「供需空洞」的核心输入 |
+| **C11** | **各社 空き容量 ＋ 地点別需要・系統潮流実績**（原 §1.2） | ⏳ 未做，**优先级高**；**2026-09-11 改写** | ~~bess-net.jp 民间聚合~~ → **官方源就是十社各自官网**，bess-net 只是其二手聚合。容量侧「予想潮流・空容量一覧（変圧器）」九社静态 CSV 到 6.6kV 配電用（中部仅交互地图）；负荷侧「地点別需要・系統潮流実績（変圧器）」十社 1 小时实测到 22kV 站（東京・沖縄到 bank）。十社入口与文件格式 2026-09-08 已实测，开工时整理进 `INGEST.md`。**许可**（2026-09-11 抽查東京・九州・北陸・中国・東北・四国）：页面只有「利用される方が行う一切の行為について責任を負いません」免责，无 OCCTO 式「出典明记即可」条款；東京 HD `/legal/` 与九州 `td/sitepolicy/rule.html` 均「事前承諾なく転用・複製禁止」。**许可**：开工前逐社确认，不转载原 CSV。**能做什么**：22kV 以上站级「運用容量 − 实测年峰值」全国余量图（坐标靠 AJG 按名匹配）；6.6kV 层只有容量无负荷。已知边界一节同步改写。**未来是否开工待用户** |
 | **C12** | **ダム便覧 / dammaps** | ❌ **判死** | dammaps 只有瓦片服务，落地页无 KML 直链；damnet 只有 PDF。不值得投入 |
 | **C13** | **エレクトリカル・ジャパン** | ❌ **判死** | 作者明确标注自建库（约 6,000 所）是**「独自収集（非オープンデータ）」**，不能抓来重发布。但它的 `data.html` 独立印证了 JEPOC 无坐标 |
-| **C14** | **OSM planet 直取**（Geofabrik japan-latest） | ⏳ 未做，**待决策** | Open Infrastructure Map 的详细度来源。我们经由 AJG 拿 OSM，而 AJG 是为潮流计算做的子集：**丢了鉄塔（`power=tower/pole`，带 `ref` 番号）、変電所/発電所/太陽光の多角形、`power=switchgear`（開閉器・変圧器単体）、回線 relation（`route=power`）**。直取能补齐。代价：japan-latest.osm.pbf 约 2GB + imposm3 或 osmium 导入 PostGIS（已有常驻实例）。⚠️ **下载前必须先跟用户确认** |
+| **C14** | **OSM planet 直取**（Geofabrik japan-latest） | ⏳ 未做，**待决策** | Open Infrastructure Map 的详细度来源。我们经由 AJG 拿 OSM，而 AJG 是为潮流计算做的子集：**丢了鉄塔（`power=tower/pole`，带 `ref` 番号）、変電所/発電所/太陽光の多角形、`power=switchgear`（開閉器・変圧器単体）、回線 relation（`route=power`）**。直取能补齐。代价：japan-latest.osm.pbf 约 2GB + imposm3 或 osmium 导入 PostGIS。⚠️ **下载体积大，先确认磁盘与时机** |
 
 ### 1.4 明确不做（写下来防止反复讨论）
 
@@ -201,25 +201,6 @@
 - ~~**前端 / 可视化**~~ —— 2026-08-02 起步，见 §3.6
 - **publish 层**（瓦片 / R2 / manifest）—— 等 structured 稳定
 - **derive 层**（供需空洞、利用率、价差）—— 等 structured
-- **git commit** —— 用户明确要求不主动动 git
-- ✅ **Dagster 编排迁移到 mkhr-data**（2026-08-27 当日完成）——采集三源迁入
-  mkhr `pipelines/dagster/power`，前端 publish 由同 location 的 `powerjp_publish`
-  （subprocess 调本 repo CLI）托管，`orchestration/` 已删除、`com.powerjp.dagster`
-  已停。cutover 快照见 mkhr-data
-  `docs/snapshots/POWERJP_INGEST_CUTOVER_20260827.md`。以下为迁移前的原记录：——
-  powerjp 的 Dagster 早晚整体迁到 `../mkhr-data/` 的数据中台。在那之前
-  **新增编排一律按 powerjp 现有规范做、不引入新机制**，保证可整体搬走。
-  迁移时需要带走的完整上下文：
-  - 调度 2 本：`refresh_30min`（05/35 每时，potok/机组＋publish dynamic）、
-    `backfill_daily`（01:20 JST，7 日穴埋め＋area_jukyu `recent=2`）——
-    定义与「为什么这样配」全在 `orchestration/schedules.py` 的注释里
-  - 窗口 config 两种：`IngestWindow`（days/force/include_today）、
-    `AreaJukyuWindow`（recent）—— 都是「当日/当月文件滚动累积、
-    已存在跳过会停更」这同一个坑的解法（LESSONS #45、INGEST.md）
-  - 约定：asset=subprocess 调 CLI、不用 IO Manager、metadata 记数
-    （CLAUDE.md 约定 3/4）；pipeline/ 不感知 Dagster，迁移只动 orchestration/
-  - 运行环境：私有计算节点 LaunchAgent `com.powerjp.dagster`（端口 3001，
-    与同机其他服务错开）、`DAGSTER_HOME` 固定 —— 私有细节见 `CLAUDE.local.md`
-  - 接入流程走 mkhr-data 的 `docs/DATASET_INTAKE.md` / `skills/pipeline-onboarding.md`
+- ✅ **Dagster 编排移交外部平台**（2026-08-27）—— 采集与前端 publish 的定时都由外部编排以 subprocess 调本 repo 的 CLI；`orchestration/` 已删除。平台位置与 job 名见本地 `DEPLOY.local.md`。
 - **AJG v1.7.0 的方向别连系线容量**（`interconnections.yaml`，顺/逆不对称）——
   负荷率概算 `LINE_CAPACITY_MW` 的潜在改善点，见 `pipeline/sources/ajg/INGEST.md`

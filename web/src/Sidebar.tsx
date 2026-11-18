@@ -19,7 +19,7 @@ import { LAYERS, GROUP_ORDER, GROUP_LEGENDS, PARENTS } from './layers'
 import type { LayerDef } from './layers'
 import { LicenseDialog } from './LicenseDialog'
 
-/** 公開予定の repo。⚠️ 現在はまだ private */
+/** ソースコードの公開 repo（新しいタブで開く） */
 const REPO_URL = 'https://github.com/ibarapascal/powerjp'
 
 type Props = {
@@ -89,7 +89,6 @@ export function Sidebar({ enabled, loading, counts, onToggle, onToggleMany }: Pr
           <h1>powerjp</h1>
           <p>日本の電力系統 — 公開データによる再構成</p>
         </div>
-        {/* ⚠️ 公開前はこのリンクは 404 になる（repo がまだ private） */}
         <a
           className="brand-repo"
           href={REPO_URL}

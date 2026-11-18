@@ -35,7 +35,7 @@ GEM 历来的做法是要填姓名/邮箱/机构才给 xlsx，但**这是印象�
 1. 在配置好的浏览器里打开 https://globalenergymonitor.org/projects/global-integrated-power-tracker/
 2. 滚到「What's inside?」，点 **`Download data` 页签**（不是 Summary tables）
 3. 看是直接给下载链接，还是弹表单
-4. 如果是表单：字段值见 `CLAUDE.local.md`（不进 git）
+4. 如果是表单：按表单要求填写
 5. 下载后放到落盘路径，并把文件名/版本/日期记到本文件末尾的「取得记录」
 
 ⚠️ 页面很重，浏览器自动化容易卡渲染进程。**建议人工点，别耗在自动化上。**

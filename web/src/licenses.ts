@@ -37,7 +37,7 @@ export type LicenseEntry = {
 /**
  * ⚠️ 公開している成果物に**実際に入っている**源だけを載せる。
  * ⛔ 「今後こうする」という予定は書かない。**いま何であるか**だけを書く
- *    （予定は `DEPLOY.local.md`）。表示は現状の記述であって計画書ではない。
+ *    （予定は repo 外の私有メモ）。表示は現状の記述であって計画書ではない。
  *
  * ⚠️ 2026-08-07：JEPOC 水力発電所データベースをこの一覧から外した。
  *    許諾が未確認のため、由来する水力 518 件を配信物から除いたので
@@ -85,6 +85,7 @@ export const LICENSES: LicenseEntry[] = [
     redistribution: '可（出典 + 加工した旨の明記）',
     url: 'https://hatsuden-kokai.occto.or.jp/hks-web-public/',
     status: 'ok',
+    note: 'ユニットを発電所の座標に対応付けて表示している**加工物**。',
   },
   {
     name: '国土数値情報 発電施設（P03）',
@@ -94,6 +95,7 @@ export const LICENSES: LicenseEntry[] = [
     redistribution: '可（出典表示）',
     url: 'https://nlftp.mlit.go.jp/ksj/',
     status: 'ok',
+    note: '「国土数値情報（発電施設データ）」（国土交通省）を加工して作成。',
   },
   {
     name: 'Global Integrated Power Tracker',
