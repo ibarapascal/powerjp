@@ -29,6 +29,24 @@
 - `data_quality: estimated` の値は按分による推計で、その地点の実測値ではありません。
 - 地図に表示しているのは**観測された潮流**です。潮流計算の結果ではありません（線路インピーダンスの権威ある公開源が無いため）。
 
+## データ源と取得方法
+
+| データ源 | 提供 | 使い方 | 期間・版 | 取得 | スクリプト |
+|---|---|---|---|---|---|
+| [All-Japan-Grid](https://github.com/lutelute/All-Japan-Grid) | lutelute（OpenStreetMap 由来） | 送電線・変電所・発電所の幾何、経路探索用の拓撲 | GitHub release（v1.7.0） | 自動（GitHub Releases から取得。`--tag` で版指定） | `pipeline/sources/ajg/` |
+| [OpenStreetMap](https://www.openstreetmap.org/copyright) | OSM contributors | All-Japan-Grid の上流 | — | All-Japan-Grid 経由 | — |
+| [系統情報サービス](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD/LOGIN_login)（地内基幹送電線 潮流実績） | 電力広域的運営推進機関（OCCTO） | 基幹送電線の 30 分潮流実績 | 2023-01〜 | 自動（アカウント不要。エリア × 日の CSV） | `pipeline/sources/occto_flow/` |
+| [ユニット別発電実績公開システム](https://hatsuden-kokai.occto.or.jp/hks-web-public/) | OCCTO | 火力・原子力・水力ユニットの 30 分出力実績 | 2024-03-25〜（T+1 公表） | 自動（免責事項の同意画面のみ） | `pipeline/sources/occto_unit/` |
+| [国土数値情報 発電施設（P03）](https://nlftp.mlit.go.jp/ksj/) | 国土交通省 | 発電所の座標補完（電源種別） | 2013 年度版（P03-13） | 自動 | `pipeline/sources/ksj_p03/` |
+| [Global Integrated Power Tracker](https://globalenergymonitor.org/projects/global-integrated-power-tracker/) | Global Energy Monitor | 発電所の座標・設備容量・電源種の補完 | March 2026 release | **手動**（Web フォームで申請してダウンロードし、`storage/raw/gem/{日付}/` に置く） | `pipeline/sources/gem/`（置いたファイルの解析） |
+| [エリア需給実績](https://www.occto.or.jp/keitoujouhou/index.html) | 一般送配電事業者 10 社 | 非調整電源（風力・地熱・バイオマス）の按分推計の元データ | 2016 年度〜（統一形式は 2024 年度〜） | 自動（各社サイトの CSV） | `pipeline/sources/area_jukyu/` |
+| 底図 | Mapbox | 地図の背景 | — | Mapbox GL JS（要アクセストークン） | `web/` |
+
+- 取得手順（エンドポイント、パラメータ、ファイルの置き場所、既知の落とし穴）は各ディレクトリの `INGEST.md` にあります。
+- `pipeline/sources/jepoc_hydro/`（電力土木技術協会 水力発電所データベース）は取得スクリプトのみで、配信物には使っていません（転載に許諾が必要なため）。
+- 取得した原データは `storage/raw/{source}/` に日付・版ごとに置き、上書きしません。OCCTO の 2 源は `--from` / `--to` / `--all` で上流から過去分を遡って取得できます。
+- 潮流とユニット出力の動的レイヤーは、原データを日次の行形式（スキーマは `pipeline/publish/platform_feed.py` に記載）に整形した中間ファイルを入力にしています。この整形処理は本リポジトリに含まれていません。原データの読み方は `pipeline/structured/` の照合スクリプトにあります。
+
 ## 対象外
 
 - 建物単位の需要推計（需要側は 10 エリアまで）
